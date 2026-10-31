@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.ruff_cache/
+.hypothesis/
+.pytest_cache/
+.coverage*
+dist/
+build/
+*.egg-info/
+.balamut/
+# A local benchmark harness (its own git repo, venv and measured state); never part of the package.
+examples/inventory/

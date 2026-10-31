@@ -1,0 +1,3175 @@
+{
+ "crlf.py": {
+  "src": [
+   [
+    2,
+    17,
+    34,
+    "return n % 2 == 0",
+    "return None",
+    "lang:return:None",
+    2,
+    2
+   ],
+   [
+    9,
+    145,
+    158,
+    "return result",
+    "return None",
+    "lang:return:None",
+    9,
+    9
+   ],
+   [
+    2,
+    24,
+    34,
+    "n % 2 == 0",
+    "n % 2 != 0",
+    "lang:compare:Eq->NotEq",
+    2,
+    2
+   ],
+   [
+    6,
+    90,
+    91,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    6,
+    6
+   ],
+   [
+    8,
+    125,
+    140,
+    "result += value",
+    "result -= value",
+    "lang:augassign:Add->Sub",
+    8,
+    8
+   ],
+   [
+    2,
+    24,
+    29,
+    "n % 2",
+    "n * 2",
+    "lang:binop:Mod->Mult",
+    2,
+    2
+   ],
+   [
+    2,
+    33,
+    34,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    2,
+    2
+   ],
+   [
+    2,
+    28,
+    29,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    2,
+    2
+   ]
+  ],
+  "concurrency": [],
+  "fault": [],
+  "oracle": [],
+  "extreme": [
+   [
+    2,
+    17,
+    34,
+    "return n % 2 == 0",
+    "pass",
+    "lang:statement:delete",
+    2,
+    2
+   ],
+   [
+    6,
+    81,
+    91,
+    "result = 0",
+    "pass",
+    "lang:statement:delete",
+    6,
+    6
+   ],
+   [
+    8,
+    125,
+    140,
+    "result += value",
+    "pass",
+    "lang:statement:delete",
+    8,
+    8
+   ],
+   [
+    9,
+    145,
+    158,
+    "return result",
+    "pass",
+    "lang:statement:delete",
+    9,
+    9
+   ]
+  ],
+  "db": [],
+  "chain": []
+ },
+ "oracle.py": {
+  "src": [
+   [
+    5,
+    110,
+    120,
+    "2 + 2 == 4",
+    "2 + 2 != 4",
+    "lang:compare:Eq->NotEq",
+    5,
+    5
+   ],
+   [
+    6,
+    132,
+    146,
+    "min(3, 4) == 3",
+    "min(3, 4) != 3",
+    "lang:compare:Eq->NotEq",
+    6,
+    6
+   ],
+   [
+    11,
+    210,
+    226,
+    "len(values) == 3",
+    "len(values) != 3",
+    "lang:compare:Eq->NotEq",
+    11,
+    11
+   ],
+   [
+    12,
+    238,
+    259,
+    "values[0] < values[2]",
+    "values[0] <= values[2]",
+    "lang:compare:Lt->LtE",
+    12,
+    12
+   ],
+   [
+    20,
+    378,
+    382,
+    "True",
+    "False",
+    "lang:const:bool:True->False",
+    20,
+    20
+   ],
+   [
+    5,
+    110,
+    115,
+    "2 + 2",
+    "2 - 2",
+    "lang:binop:Add->Sub",
+    5,
+    5
+   ],
+   [
+    5,
+    119,
+    120,
+    "4",
+    "5",
+    "lang:const:num:4->5",
+    5,
+    5
+   ],
+   [
+    6,
+    132,
+    141,
+    "min(3, 4)",
+    "max(3, 4)",
+    "std:builtins:min->max",
+    6,
+    6
+   ],
+   [
+    6,
+    132,
+    141,
+    "min(3, 4)",
+    "min(4, 3)",
+    "lang:call:arg-swap",
+    6,
+    6
+   ],
+   [
+    6,
+    136,
+    139,
+    "3, ",
+    "",
+    "lang:call:arg-drop",
+    6,
+    6
+   ],
+   [
+    6,
+    137,
+    140,
+    ", 4",
+    "",
+    "lang:call:arg-drop",
+    6,
+    6
+   ],
+   [
+    6,
+    145,
+    146,
+    "3",
+    "4",
+    "lang:const:num:3->4",
+    6,
+    6
+   ],
+   [
+    10,
+    190,
+    191,
+    "1",
+    "2",
+    "lang:const:num:1->2",
+    10,
+    10
+   ],
+   [
+    10,
+    193,
+    194,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    10,
+    10
+   ],
+   [
+    10,
+    196,
+    197,
+    "3",
+    "4",
+    "lang:const:num:3->4",
+    10,
+    10
+   ],
+   [
+    11,
+    225,
+    226,
+    "3",
+    "4",
+    "lang:const:num:3->4",
+    11,
+    11
+   ],
+   [
+    5,
+    110,
+    111,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    5,
+    5
+   ],
+   [
+    5,
+    114,
+    115,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    5,
+    5
+   ],
+   [
+    6,
+    136,
+    137,
+    "3",
+    "4",
+    "lang:const:num:3->4",
+    6,
+    6
+   ],
+   [
+    6,
+    139,
+    140,
+    "4",
+    "5",
+    "lang:const:num:4->5",
+    6,
+    6
+   ],
+   [
+    12,
+    245,
+    246,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    12,
+    12
+   ],
+   [
+    12,
+    257,
+    258,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    12,
+    12
+   ]
+  ],
+  "concurrency": [],
+  "fault": [],
+  "oracle": [
+   [
+    5,
+    110,
+    120,
+    "2 + 2 == 4",
+    "not (2 + 2 == 4)",
+    "lang:assert:negate",
+    5,
+    5
+   ],
+   [
+    6,
+    132,
+    146,
+    "min(3, 4) == 3",
+    "not (min(3, 4) == 3)",
+    "lang:assert:negate",
+    6,
+    6
+   ],
+   [
+    11,
+    210,
+    226,
+    "len(values) == 3",
+    "not (len(values) == 3)",
+    "lang:assert:negate",
+    11,
+    11
+   ],
+   [
+    12,
+    238,
+    259,
+    "values[0] < values[2]",
+    "not (values[0] < values[2])",
+    "lang:assert:negate",
+    12,
+    12
+   ]
+  ],
+  "extreme": [
+   [
+    10,
+    180,
+    198,
+    "values = [1, 2, 3]",
+    "pass",
+    "lang:statement:delete",
+    10,
+    10
+   ],
+   [
+    17,
+    306,
+    330,
+    "raise ValueError(\"boom\")",
+    "pass",
+    "lang:statement:delete",
+    17,
+    17
+   ]
+  ],
+  "db": [],
+  "chain": []
+ },
+ "pricing.py": {
+  "src": [
+   [
+    14,
+    334,
+    362,
+    "return unit_price * quantity",
+    "return None",
+    "lang:return:None",
+    14,
+    14
+   ],
+   [
+    23,
+    570,
+    587,
+    "return Decimal(0)",
+    "return None",
+    "lang:return:None",
+    23,
+    23
+   ],
+   [
+    27,
+    636,
+    708,
+    "return (amount * (1 + TAX_RATE)).quantize(_CENT, rounding=ROUND_HALF_UP)",
+    "return None",
+    "lang:return:None",
+    27,
+    27
+   ],
+   [
+    32,
+    827,
+    884,
+    "return with_tax(subtotal * (1 - bulk_discount(quantity)))",
+    "return None",
+    "lang:return:None",
+    32,
+    32
+   ],
+   [
+    12,
+    261,
+    274,
+    "quantity <= 0",
+    "quantity < 0",
+    "lang:compare:LtE->Lt",
+    12,
+    12
+   ],
+   [
+    14,
+    341,
+    362,
+    "unit_price * quantity",
+    "unit_price / quantity",
+    "lang:binop:Mult->Div",
+    14,
+    14
+   ],
+   [
+    19,
+    466,
+    480,
+    "quantity >= 40",
+    "quantity > 40",
+    "lang:compare:GtE->Gt",
+    19,
+    19
+   ],
+   [
+    20,
+    490,
+    512,
+    "return Decimal(\"0.20\")",
+    "return None",
+    "lang:return:None",
+    20,
+    20
+   ],
+   [
+    21,
+    520,
+    533,
+    "quantity >= 5",
+    "quantity > 5",
+    "lang:compare:GtE->Gt",
+    21,
+    21
+   ],
+   [
+    22,
+    543,
+    565,
+    "return Decimal(\"0.10\")",
+    "return None",
+    "lang:return:None",
+    22,
+    22
+   ],
+   [
+    27,
+    643,
+    708,
+    "(amount * (1 + TAX_RATE)).quantize(_CENT, rounding=ROUND_HALF_UP)",
+    "(amount * (1 + TAX_RATE))",
+    "std:decimal:quantize-drop",
+    27,
+    27
+   ],
+   [
+    27,
+    683,
+    707,
+    ", rounding=ROUND_HALF_UP",
+    "",
+    "lang:call:kwarg-drop",
+    27,
+    27
+   ],
+   [
+    31,
+    790,
+    822,
+    "line_total(unit_price, quantity)",
+    "line_total(quantity, unit_price)",
+    "lang:call:arg-swap",
+    31,
+    31
+   ],
+   [
+    31,
+    801,
+    813,
+    "unit_price, ",
+    "",
+    "lang:call:arg-drop",
+    31,
+    31
+   ],
+   [
+    31,
+    811,
+    821,
+    ", quantity",
+    "",
+    "lang:call:arg-drop",
+    31,
+    31
+   ],
+   [
+    12,
+    273,
+    274,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    12,
+    12
+   ],
+   [
+    19,
+    478,
+    480,
+    "40",
+    "41",
+    "lang:const:num:40->41",
+    19,
+    19
+   ],
+   [
+    21,
+    532,
+    533,
+    "5",
+    "6",
+    "lang:const:num:5->6",
+    21,
+    21
+   ],
+   [
+    23,
+    585,
+    586,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    23,
+    23
+   ],
+   [
+    32,
+    843,
+    883,
+    "subtotal * (1 - bulk_discount(quantity))",
+    "subtotal / (1 - bulk_discount(quantity))",
+    "lang:binop:Mult->Div",
+    32,
+    32
+   ],
+   [
+    27,
+    644,
+    667,
+    "amount * (1 + TAX_RATE)",
+    "amount / (1 + TAX_RATE)",
+    "lang:binop:Mult->Div",
+    27,
+    27
+   ],
+   [
+    32,
+    855,
+    882,
+    "1 - bulk_discount(quantity)",
+    "1 + bulk_discount(quantity)",
+    "lang:binop:Sub->Add",
+    32,
+    32
+   ],
+   [
+    27,
+    654,
+    666,
+    "1 + TAX_RATE",
+    "1 - TAX_RATE",
+    "lang:binop:Add->Sub",
+    27,
+    27
+   ],
+   [
+    32,
+    855,
+    856,
+    "1",
+    "2",
+    "lang:const:num:1->2",
+    32,
+    32
+   ],
+   [
+    27,
+    654,
+    655,
+    "1",
+    "2",
+    "lang:const:num:1->2",
+    27,
+    27
+   ]
+  ],
+  "concurrency": [],
+  "fault": [],
+  "oracle": [],
+  "extreme": [
+   [
+    13,
+    284,
+    329,
+    "raise ValueError(\"quantity must be positive\")",
+    "pass",
+    "lang:statement:delete",
+    13,
+    13
+   ],
+   [
+    14,
+    334,
+    362,
+    "return unit_price * quantity",
+    "pass",
+    "lang:statement:delete",
+    14,
+    14
+   ],
+   [
+    20,
+    490,
+    512,
+    "return Decimal(\"0.20\")",
+    "pass",
+    "lang:statement:delete",
+    20,
+    20
+   ],
+   [
+    22,
+    543,
+    565,
+    "return Decimal(\"0.10\")",
+    "pass",
+    "lang:statement:delete",
+    22,
+    22
+   ],
+   [
+    23,
+    570,
+    587,
+    "return Decimal(0)",
+    "pass",
+    "lang:statement:delete",
+    23,
+    23
+   ],
+   [
+    27,
+    636,
+    708,
+    "return (amount * (1 + TAX_RATE)).quantize(_CENT, rounding=ROUND_HALF_UP)",
+    "pass",
+    "lang:statement:delete",
+    27,
+    27
+   ],
+   [
+    31,
+    779,
+    822,
+    "subtotal = line_total(unit_price, quantity)",
+    "pass",
+    "lang:statement:delete",
+    31,
+    31
+   ],
+   [
+    32,
+    827,
+    884,
+    "return with_tax(subtotal * (1 - bulk_discount(quantity)))",
+    "pass",
+    "lang:statement:delete",
+    32,
+    32
+   ]
+  ],
+  "db": [],
+  "chain": []
+ },
+ "shipping.py": {
+  "src": [
+   [
+    5,
+    90,
+    92,
+    "80",
+    "81",
+    "lang:const:num:80->81",
+    5,
+    5
+   ],
+   [
+    14,
+    345,
+    366,
+    "return round(cost, 2)",
+    "return None",
+    "lang:return:None",
+    14,
+    14
+   ],
+   [
+    18,
+    420,
+    460,
+    "return order_total >= FREE_SHIPPING_FROM",
+    "return None",
+    "lang:return:None",
+    18,
+    18
+   ],
+   [
+    9,
+    174,
+    188,
+    "weight_kg <= 0",
+    "weight_kg < 0",
+    "lang:compare:LtE->Lt",
+    9,
+    9
+   ],
+   [
+    13,
+    331,
+    340,
+    "cost *= 2",
+    "cost /= 2",
+    "lang:augassign:Mult->Div",
+    13,
+    13
+   ],
+   [
+    14,
+    352,
+    366,
+    "round(cost, 2)",
+    "cost",
+    "std:builtins:round-drop",
+    14,
+    14
+   ],
+   [
+    14,
+    352,
+    366,
+    "round(cost, 2)",
+    "round(2, cost)",
+    "lang:call:arg-swap",
+    14,
+    14
+   ],
+   [
+    14,
+    358,
+    364,
+    "cost, ",
+    "",
+    "lang:call:arg-drop",
+    14,
+    14
+   ],
+   [
+    14,
+    362,
+    365,
+    ", 2",
+    "",
+    "lang:call:arg-drop",
+    14,
+    14
+   ],
+   [
+    18,
+    427,
+    460,
+    "order_total >= FREE_SHIPPING_FROM",
+    "order_total > FREE_SHIPPING_FROM",
+    "lang:compare:GtE->Gt",
+    18,
+    18
+   ],
+   [
+    9,
+    187,
+    188,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    9,
+    9
+   ],
+   [
+    11,
+    260,
+    273,
+    "weight_kg < 2",
+    "weight_kg <= 2",
+    "lang:compare:Lt->LtE",
+    11,
+    11
+   ],
+   [
+    11,
+    253,
+    256,
+    "5.0",
+    "6.0",
+    "lang:const:num:5.0->6.0",
+    11,
+    11
+   ],
+   [
+    11,
+    279,
+    306,
+    "5.0 + (weight_kg - 2) * 1.5",
+    "5.0 - (weight_kg - 2) * 1.5",
+    "lang:binop:Add->Sub",
+    11,
+    11
+   ],
+   [
+    13,
+    339,
+    340,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    13,
+    13
+   ],
+   [
+    14,
+    364,
+    365,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    14,
+    14
+   ],
+   [
+    11,
+    272,
+    273,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    11,
+    11
+   ],
+   [
+    11,
+    279,
+    282,
+    "5.0",
+    "6.0",
+    "lang:const:num:5.0->6.0",
+    11,
+    11
+   ],
+   [
+    11,
+    285,
+    306,
+    "(weight_kg - 2) * 1.5",
+    "(weight_kg - 2) / 1.5",
+    "lang:binop:Mult->Div",
+    11,
+    11
+   ],
+   [
+    11,
+    286,
+    299,
+    "weight_kg - 2",
+    "weight_kg + 2",
+    "lang:binop:Sub->Add",
+    11,
+    11
+   ],
+   [
+    11,
+    303,
+    306,
+    "1.5",
+    "2.5",
+    "lang:const:num:1.5->2.5",
+    11,
+    11
+   ],
+   [
+    11,
+    298,
+    299,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    11,
+    11
+   ]
+  ],
+  "concurrency": [],
+  "fault": [],
+  "oracle": [],
+  "extreme": [
+   [
+    10,
+    198,
+    241,
+    "raise ValueError(\"weight must be positive\")",
+    "pass",
+    "lang:statement:delete",
+    10,
+    10
+   ],
+   [
+    11,
+    246,
+    306,
+    "cost = 5.0 if weight_kg < 2 else 5.0 + (weight_kg - 2) * 1.5",
+    "pass",
+    "lang:statement:delete",
+    11,
+    11
+   ],
+   [
+    13,
+    331,
+    340,
+    "cost *= 2",
+    "pass",
+    "lang:statement:delete",
+    13,
+    13
+   ],
+   [
+    14,
+    345,
+    366,
+    "return round(cost, 2)",
+    "pass",
+    "lang:statement:delete",
+    14,
+    14
+   ],
+   [
+    18,
+    420,
+    460,
+    "return order_total >= FREE_SHIPPING_FROM",
+    "pass",
+    "lang:statement:delete",
+    18,
+    18
+   ]
+  ],
+  "db": [],
+  "chain": []
+ },
+ "stock.py": {
+  "src": [
+   [
+    39,
+    1094,
+    1116,
+    "return self.stock[sku]",
+    "return None",
+    "lang:return:None",
+    39,
+    39
+   ],
+   [
+    29,
+    725,
+    747,
+    "self.stock.get(sku, 0)",
+    "self.stock.get(0, sku)",
+    "lang:call:arg-swap",
+    29,
+    29
+   ],
+   [
+    29,
+    740,
+    745,
+    "sku, ",
+    "",
+    "lang:call:arg-drop",
+    29,
+    29
+   ],
+   [
+    29,
+    743,
+    746,
+    ", 0",
+    "",
+    "lang:call:arg-drop",
+    29,
+    29
+   ],
+   [
+    30,
+    763,
+    783,
+    "quantity > available",
+    "quantity >= available",
+    "lang:compare:Gt->GtE",
+    30,
+    30
+   ],
+   [
+    32,
+    858,
+    878,
+    "available - quantity",
+    "available + quantity",
+    "lang:binop:Sub->Add",
+    32,
+    32
+   ],
+   [
+    34,
+    912,
+    939,
+    "await self.session.commit()",
+    "pass",
+    "lang:delete:call",
+    34,
+    34
+   ],
+   [
+    29,
+    745,
+    746,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    29,
+    29
+   ],
+   [
+    37,
+    1030,
+    1059,
+    "await self.session.rollback()",
+    "pass",
+    "lang:delete:call",
+    37,
+    37
+   ]
+  ],
+  "concurrency": [
+   [
+    28,
+    689,
+    699,
+    "self._lock",
+    "nullcontext()",
+    "std:asyncio:lock-drop",
+    28,
+    28
+   ]
+  ],
+  "fault": [
+   [
+    34,
+    918,
+    939,
+    "self.session.commit()",
+    "balamut_fault_raise('commit')",
+    "sa:session:raise-at:commit",
+    34,
+    34
+   ],
+   [
+    37,
+    1036,
+    1059,
+    "self.session.rollback()",
+    "balamut_fault_raise('rollback')",
+    "sa:session:raise-at:rollback",
+    37,
+    37
+   ]
+  ],
+  "oracle": [],
+  "extreme": [
+   [
+    29,
+    713,
+    747,
+    "available = self.stock.get(sku, 0)",
+    "pass",
+    "lang:statement:delete",
+    29,
+    29
+   ],
+   [
+    31,
+    801,
+    827,
+    "raise OutOfStockError(sku)",
+    "pass",
+    "lang:statement:delete",
+    31,
+    31
+   ],
+   [
+    32,
+    840,
+    878,
+    "self.stock[sku] = available - quantity",
+    "pass",
+    "lang:statement:delete",
+    32,
+    32
+   ],
+   [
+    36,
+    986,
+    1013,
+    "self.stock[sku] = available",
+    "pass",
+    "lang:statement:delete",
+    36,
+    36
+   ],
+   [
+    38,
+    1076,
+    1081,
+    "raise",
+    "pass",
+    "lang:statement:delete",
+    38,
+    38
+   ],
+   [
+    39,
+    1094,
+    1116,
+    "return self.stock[sku]",
+    "pass",
+    "lang:statement:delete",
+    39,
+    39
+   ]
+  ],
+  "db": [],
+  "chain": []
+ },
+ "torture.py": {
+  "src": [
+   [
+    15,
+    417,
+    419,
+    "30",
+    "31",
+    "lang:const:num:30->31",
+    15,
+    15
+   ],
+   [
+    32,
+    851,
+    892,
+    "return value if value != low else low + 1",
+    "return None",
+    "lang:return:None",
+    32,
+    32
+   ],
+   [
+    37,
+    958,
+    999,
+    "return mask & 0xF | mask >> 2 ^ mask << 1",
+    "return None",
+    "lang:return:None",
+    37,
+    37
+   ],
+   [
+    44,
+    1135,
+    1148,
+    "return \"wait\"",
+    "return None",
+    "lang:return:None",
+    44,
+    44
+   ],
+   [
+    49,
+    1233,
+    1278,
+    "return all(checks) if checks else any(checks)",
+    "return None",
+    "lang:return:None",
+    49,
+    49
+   ],
+   [
+    56,
+    1480,
+    1503,
+    "return int(total * 100)",
+    "return None",
+    "lang:return:None",
+    56,
+    56
+   ],
+   [
+    68,
+    1739,
+    1751,
+    "return total",
+    "return None",
+    "lang:return:None",
+    68,
+    68
+   ],
+   [
+    86,
+    2233,
+    2260,
+    "return f\"{text} — {name}\"",
+    "return None",
+    "lang:return:None",
+    86,
+    86
+   ],
+   [
+    30,
+    774,
+    802,
+    "value < low or value >= high",
+    "value < low and value >= high",
+    "lang:boolop:Or->And",
+    30,
+    30
+   ],
+   [
+    37,
+    965,
+    999,
+    "mask & 0xF | mask >> 2 ^ mask << 1",
+    "mask & 15 & (mask >> 2 ^ mask << 1)",
+    "lang:binop:BitOr->BitAnd",
+    37,
+    37
+   ],
+   [
+    42,
+    1085,
+    1109,
+    "(ok and ready) or not ok",
+    "(ok and ready) and (not ok)",
+    "lang:boolop:Or->And",
+    42,
+    42
+   ],
+   [
+    43,
+    1119,
+    1130,
+    "return \"go\"",
+    "return None",
+    "lang:return:None",
+    43,
+    43
+   ],
+   [
+    54,
+    1394,
+    1440,
+    "amount.quantize(_CENT, rounding=ROUND_HALF_UP)",
+    "amount",
+    "std:decimal:quantize-drop",
+    54,
+    54
+   ],
+   [
+    54,
+    1415,
+    1439,
+    ", rounding=ROUND_HALF_UP",
+    "",
+    "lang:call:kwarg-drop",
+    54,
+    54
+   ],
+   [
+    55,
+    1453,
+    1475,
+    "round(float(price), 2)",
+    "float(price)",
+    "std:builtins:round-drop",
+    55,
+    55
+   ],
+   [
+    55,
+    1453,
+    1475,
+    "round(float(price), 2)",
+    "round(2, float(price))",
+    "lang:call:arg-swap",
+    55,
+    55
+   ],
+   [
+    55,
+    1459,
+    1473,
+    "float(price), ",
+    "",
+    "lang:call:arg-drop",
+    55,
+    55
+   ],
+   [
+    55,
+    1471,
+    1474,
+    ", 2",
+    "",
+    "lang:call:arg-drop",
+    55,
+    55
+   ],
+   [
+    61,
+    1603,
+    1604,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    61,
+    61
+   ],
+   [
+    67,
+    1721,
+    1734,
+    "total += item",
+    "total -= item",
+    "lang:augassign:Add->Sub",
+    67,
+    67
+   ],
+   [
+    82,
+    2087,
+    2134,
+    "name.startswith(\"a\") and not name.endswith(\"z\")",
+    "name.startswith('a') or not name.endswith('z')",
+    "lang:boolop:And->Or",
+    82,
+    82
+   ],
+   [
+    84,
+    2175,
+    2195,
+    "name.find(\"x\") == -1",
+    "name.find('x') != -1",
+    "lang:compare:Eq->NotEq",
+    84,
+    84
+   ],
+   [
+    92,
+    2391,
+    2392,
+    "3",
+    "4",
+    "lang:const:num:3->4",
+    92,
+    92
+   ],
+   [
+    93,
+    2436,
+    2438,
+    "60",
+    "61",
+    "lang:const:num:60->61",
+    93,
+    93
+   ],
+   [
+    105,
+    2935,
+    2976,
+    "return Task.done_at > now.timestamp() - 1",
+    "return None",
+    "lang:return:None",
+    105,
+    105
+   ],
+   [
+    111,
+    3241,
+    3294,
+    "return page.group_by(Task.token, Task.attempts).asc()",
+    "return None",
+    "lang:return:None",
+    111,
+    111
+   ],
+   [
+    115,
+    3406,
+    3482,
+    "return stmt.filter(Task.attempts > 0, dedup_key=(Task.token, Task.attempts))",
+    "return None",
+    "lang:return:None",
+    115,
+    115
+   ],
+   [
+    119,
+    3585,
+    3630,
+    "return stmt.on_conflict_do_update(Task.token)",
+    "return None",
+    "lang:return:None",
+    119,
+    119
+   ],
+   [
+    123,
+    3733,
+    3785,
+    "return moment.astimezone(UTC).replace(microsecond=0)",
+    "return None",
+    "lang:return:None",
+    123,
+    123
+   ],
+   [
+    127,
+    3881,
+    3925,
+    "return datetime.now(UTC) + timedelta(days=1)",
+    "return None",
+    "lang:return:None",
+    127,
+    127
+   ],
+   [
+    131,
+    4023,
+    4067,
+    "return stmt.filter(Task.done_at > 0).first()",
+    "return None",
+    "lang:return:None",
+    131,
+    131
+   ],
+   [
+    135,
+    4177,
+    4212,
+    "return item.query.with_for_update()",
+    "return None",
+    "lang:return:None",
+    135,
+    135
+   ],
+   [
+    139,
+    4319,
+    4363,
+    "return datetime.now() + timedelta(minutes=5)",
+    "return None",
+    "lang:return:None",
+    139,
+    139
+   ],
+   [
+    153,
+    4774,
+    4793,
+    "return inner(value)",
+    "return None",
+    "lang:return:None",
+    153,
+    153
+   ],
+   [
+    30,
+    774,
+    785,
+    "value < low",
+    "value <= low",
+    "lang:compare:Lt->LtE",
+    30,
+    30
+   ],
+   [
+    30,
+    789,
+    802,
+    "value >= high",
+    "value > high",
+    "lang:compare:GtE->Gt",
+    30,
+    30
+   ],
+   [
+    31,
+    820,
+    846,
+    "min(max(value, low), high)",
+    "max(max(value, low), high)",
+    "std:builtins:min->max",
+    31,
+    31
+   ],
+   [
+    31,
+    820,
+    846,
+    "min(max(value, low), high)",
+    "min(high, max(value, low))",
+    "lang:call:arg-swap",
+    31,
+    31
+   ],
+   [
+    31,
+    824,
+    841,
+    "max(value, low), ",
+    "",
+    "lang:call:arg-drop",
+    31,
+    31
+   ],
+   [
+    31,
+    839,
+    845,
+    ", high",
+    "",
+    "lang:call:arg-drop",
+    31,
+    31
+   ],
+   [
+    32,
+    867,
+    879,
+    "value != low",
+    "value == low",
+    "lang:compare:NotEq->Eq",
+    32,
+    32
+   ],
+   [
+    32,
+    885,
+    892,
+    "low + 1",
+    "low - 1",
+    "lang:binop:Add->Sub",
+    32,
+    32
+   ],
+   [
+    37,
+    965,
+    975,
+    "mask & 0xF",
+    "mask | 15",
+    "lang:binop:BitAnd->BitOr",
+    37,
+    37
+   ],
+   [
+    37,
+    978,
+    999,
+    "mask >> 2 ^ mask << 1",
+    "mask >> 2 & mask << 1",
+    "lang:binop:BitXor->BitAnd",
+    37,
+    37
+   ],
+   [
+    42,
+    1086,
+    1098,
+    "ok and ready",
+    "ok or ready",
+    "lang:boolop:And->Or",
+    42,
+    42
+   ],
+   [
+    42,
+    1103,
+    1109,
+    "not ok",
+    "ok",
+    "lang:unary:not-removal",
+    42,
+    42
+   ],
+   [
+    49,
+    1240,
+    1251,
+    "all(checks)",
+    "any(checks)",
+    "std:builtins:all->any",
+    49,
+    49
+   ],
+   [
+    49,
+    1267,
+    1278,
+    "any(checks)",
+    "all(checks)",
+    "std:builtins:any->all",
+    49,
+    49
+   ],
+   [
+    55,
+    1473,
+    1474,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    55,
+    55
+   ],
+   [
+    56,
+    1491,
+    1502,
+    "total * 100",
+    "total / 100",
+    "lang:binop:Mult->Div",
+    56,
+    56
+   ],
+   [
+    63,
+    1639,
+    1648,
+    "item <= 0",
+    "item < 0",
+    "lang:compare:LtE->Lt",
+    63,
+    63
+   ],
+   [
+    64,
+    1662,
+    1670,
+    "continue",
+    "break",
+    "lang:control:continue->break",
+    64,
+    64
+   ],
+   [
+    65,
+    1682,
+    1693,
+    "item > 1000",
+    "item >= 1000",
+    "lang:compare:Gt->GtE",
+    65,
+    65
+   ],
+   [
+    66,
+    1707,
+    1712,
+    "break",
+    "continue",
+    "lang:control:break->continue",
+    66,
+    66
+   ],
+   [
+    74,
+    1884,
+    1907,
+    "(big := item * 2) > 100",
+    "(big := (item * 2)) >= 100",
+    "lang:compare:Gt->GtE",
+    74,
+    74
+   ],
+   [
+    75,
+    1921,
+    1931,
+    "return big",
+    "return None",
+    "lang:return:None",
+    75,
+    75
+   ],
+   [
+    82,
+    2087,
+    2107,
+    "name.startswith(\"a\")",
+    "name.endswith('a')",
+    "std:str:startswith->endswith",
+    82,
+    82
+   ],
+   [
+    82,
+    2112,
+    2134,
+    "not name.endswith(\"z\")",
+    "name.endswith('z')",
+    "lang:unary:not-removal",
+    82,
+    82
+   ],
+   [
+    83,
+    2151,
+    2167,
+    "text.lstrip(\"h\")",
+    "text.rstrip('h')",
+    "std:str:lstrip->rstrip",
+    83,
+    83
+   ],
+   [
+    84,
+    2175,
+    2189,
+    "name.find(\"x\")",
+    "name.rfind('x')",
+    "std:str:find->rfind",
+    84,
+    84
+   ],
+   [
+    85,
+    2212,
+    2228,
+    "text.rstrip(\"d\")",
+    "text.lstrip('d')",
+    "std:str:rstrip->lstrip",
+    85,
+    85
+   ],
+   [
+    101,
+    2753,
+    2807,
+    "Task.token == token and Task.run_at <= now.timestamp()",
+    "Task.token == token or Task.run_at <= now.timestamp()",
+    "lang:boolop:And->Or",
+    101,
+    101
+   ],
+   [
+    102,
+    2821,
+    2832,
+    "return True",
+    "return None",
+    "lang:return:None",
+    102,
+    102
+   ],
+   [
+    103,
+    2844,
+    2872,
+    "Task.attempts < self.retries",
+    "Task.attempts <= self.retries",
+    "lang:compare:Lt->LtE",
+    103,
+    103
+   ],
+   [
+    104,
+    2886,
+    2926,
+    "return Task.expires_at < now.timestamp()",
+    "return None",
+    "lang:return:None",
+    104,
+    104
+   ],
+   [
+    105,
+    2942,
+    2976,
+    "Task.done_at > now.timestamp() - 1",
+    "Task.done_at >= now.timestamp() - 1",
+    "lang:compare:Gt->GtE",
+    105,
+    105
+   ],
+   [
+    110,
+    3182,
+    3232,
+    "rows.limit(10).distinct(Task.token, Task.attempts)",
+    "rows.limit(10).distinct(Task.attempts, Task.token)",
+    "lang:call:arg-swap",
+    110,
+    110
+   ],
+   [
+    110,
+    3206,
+    3218,
+    "Task.token, ",
+    "",
+    "lang:call:arg-drop",
+    110,
+    110
+   ],
+   [
+    110,
+    3216,
+    3231,
+    ", Task.attempts",
+    "",
+    "lang:call:arg-drop",
+    110,
+    110
+   ],
+   [
+    115,
+    3442,
+    3481,
+    ", dedup_key=(Task.token, Task.attempts)",
+    "",
+    "lang:call:kwarg-drop",
+    115,
+    115
+   ],
+   [
+    127,
+    3888,
+    3925,
+    "datetime.now(UTC) + timedelta(days=1)",
+    "datetime.now(UTC) - timedelta(days=1)",
+    "lang:binop:Add->Sub",
+    127,
+    127
+   ],
+   [
+    139,
+    4326,
+    4363,
+    "datetime.now() + timedelta(minutes=5)",
+    "datetime.now() - timedelta(minutes=5)",
+    "lang:binop:Add->Sub",
+    139,
+    139
+   ],
+   [
+    144,
+    4501,
+    4528,
+    "await self.session.commit()",
+    "pass",
+    "lang:delete:call",
+    144,
+    144
+   ],
+   [
+    145,
+    4541,
+    4567,
+    "await self.session.flush()",
+    "pass",
+    "lang:delete:call",
+    145,
+    145
+   ],
+   [
+    151,
+    4736,
+    4764,
+    "return x * 2 if x > 0 else 0",
+    "return None",
+    "lang:return:None",
+    151,
+    151
+   ],
+   [
+    160,
+    4905,
+    4913,
+    "return 1",
+    "return None",
+    "lang:return:None",
+    160,
+    160
+   ],
+   [
+    162,
+    4942,
+    4950,
+    "return 0",
+    "return None",
+    "lang:return:None",
+    162,
+    162
+   ],
+   [
+    31,
+    824,
+    839,
+    "max(value, low)",
+    "min(value, low)",
+    "std:builtins:max->min",
+    31,
+    31
+   ],
+   [
+    31,
+    824,
+    839,
+    "max(value, low)",
+    "max(low, value)",
+    "lang:call:arg-swap",
+    31,
+    31
+   ],
+   [
+    31,
+    828,
+    835,
+    "value, ",
+    "",
+    "lang:call:arg-drop",
+    31,
+    31
+   ],
+   [
+    31,
+    833,
+    838,
+    ", low",
+    "",
+    "lang:call:arg-drop",
+    31,
+    31
+   ],
+   [
+    32,
+    891,
+    892,
+    "1",
+    "2",
+    "lang:const:num:1->2",
+    32,
+    32
+   ],
+   [
+    37,
+    972,
+    975,
+    "0xF",
+    "16",
+    "lang:const:num:15->16",
+    37,
+    37
+   ],
+   [
+    37,
+    978,
+    987,
+    "mask >> 2",
+    "mask << 2",
+    "lang:binop:RShift->LShift",
+    37,
+    37
+   ],
+   [
+    37,
+    990,
+    999,
+    "mask << 1",
+    "mask >> 1",
+    "lang:binop:LShift->RShift",
+    37,
+    37
+   ],
+   [
+    56,
+    1499,
+    1502,
+    "100",
+    "101",
+    "lang:const:num:100->101",
+    56,
+    56
+   ],
+   [
+    63,
+    1647,
+    1648,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    63,
+    63
+   ],
+   [
+    65,
+    1689,
+    1693,
+    "1000",
+    "1001",
+    "lang:const:num:1000->1001",
+    65,
+    65
+   ],
+   [
+    74,
+    1904,
+    1907,
+    "100",
+    "101",
+    "lang:const:num:100->101",
+    74,
+    74
+   ],
+   [
+    82,
+    2116,
+    2134,
+    "name.endswith(\"z\")",
+    "name.startswith('z')",
+    "std:str:endswith->startswith",
+    82,
+    82
+   ],
+   [
+    84,
+    2194,
+    2195,
+    "1",
+    "2",
+    "lang:const:num:1->2",
+    84,
+    84
+   ],
+   [
+    101,
+    2753,
+    2772,
+    "Task.token == token",
+    "Task.token != token",
+    "lang:compare:Eq->NotEq",
+    101,
+    101
+   ],
+   [
+    101,
+    2777,
+    2807,
+    "Task.run_at <= now.timestamp()",
+    "Task.run_at < now.timestamp()",
+    "lang:compare:LtE->Lt",
+    101,
+    101
+   ],
+   [
+    102,
+    2828,
+    2832,
+    "True",
+    "False",
+    "lang:const:bool:True->False",
+    102,
+    102
+   ],
+   [
+    104,
+    2893,
+    2926,
+    "Task.expires_at < now.timestamp()",
+    "Task.expires_at <= now.timestamp()",
+    "lang:compare:Lt->LtE",
+    104,
+    104
+   ],
+   [
+    105,
+    2957,
+    2976,
+    "now.timestamp() - 1",
+    "now.timestamp() + 1",
+    "lang:binop:Sub->Add",
+    105,
+    105
+   ],
+   [
+    115,
+    3425,
+    3442,
+    "Task.attempts > 0",
+    "Task.attempts >= 0",
+    "lang:compare:Gt->GtE",
+    115,
+    115
+   ],
+   [
+    160,
+    4912,
+    4913,
+    "1",
+    "2",
+    "lang:const:num:1->2",
+    160,
+    160
+   ],
+   [
+    162,
+    4949,
+    4950,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    162,
+    162
+   ],
+   [
+    37,
+    986,
+    987,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    37,
+    37
+   ],
+   [
+    37,
+    998,
+    999,
+    "1",
+    "2",
+    "lang:const:num:1->2",
+    37,
+    37
+   ],
+   [
+    74,
+    1892,
+    1900,
+    "item * 2",
+    "item / 2",
+    "lang:binop:Mult->Div",
+    74,
+    74
+   ],
+   [
+    105,
+    2975,
+    2976,
+    "1",
+    "2",
+    "lang:const:num:1->2",
+    105,
+    105
+   ],
+   [
+    111,
+    3248,
+    3288,
+    "page.group_by(Task.token, Task.attempts)",
+    "page.group_by(Task.attempts, Task.token)",
+    "lang:call:arg-swap",
+    111,
+    111
+   ],
+   [
+    111,
+    3262,
+    3274,
+    "Task.token, ",
+    "",
+    "lang:call:arg-drop",
+    111,
+    111
+   ],
+   [
+    111,
+    3272,
+    3287,
+    ", Task.attempts",
+    "",
+    "lang:call:arg-drop",
+    111,
+    111
+   ],
+   [
+    115,
+    3441,
+    3442,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    115,
+    115
+   ],
+   [
+    123,
+    3783,
+    3784,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    123,
+    123
+   ],
+   [
+    151,
+    4752,
+    4757,
+    "x > 0",
+    "x >= 0",
+    "lang:compare:Gt->GtE",
+    151,
+    151
+   ],
+   [
+    151,
+    4743,
+    4748,
+    "x * 2",
+    "x / 2",
+    "lang:binop:Mult->Div",
+    151,
+    151
+   ],
+   [
+    151,
+    4763,
+    4764,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    151,
+    151
+   ],
+   [
+    74,
+    1899,
+    1900,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    74,
+    74
+   ],
+   [
+    109,
+    3126,
+    3143,
+    "Task.attempts > 0",
+    "Task.attempts >= 0",
+    "lang:compare:Gt->GtE",
+    109,
+    109
+   ],
+   [
+    110,
+    3193,
+    3195,
+    "10",
+    "11",
+    "lang:const:num:10->11",
+    110,
+    110
+   ],
+   [
+    127,
+    3923,
+    3924,
+    "1",
+    "2",
+    "lang:const:num:1->2",
+    127,
+    127
+   ],
+   [
+    131,
+    4042,
+    4058,
+    "Task.done_at > 0",
+    "Task.done_at >= 0",
+    "lang:compare:Gt->GtE",
+    131,
+    131
+   ],
+   [
+    139,
+    4361,
+    4362,
+    "5",
+    "6",
+    "lang:const:num:5->6",
+    139,
+    139
+   ],
+   [
+    151,
+    4756,
+    4757,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    151,
+    151
+   ],
+   [
+    151,
+    4747,
+    4748,
+    "2",
+    "3",
+    "lang:const:num:2->3",
+    151,
+    151
+   ],
+   [
+    109,
+    3102,
+    3118,
+    "stmt.where(A, B)",
+    "stmt.where(B, A)",
+    "lang:call:arg-swap",
+    109,
+    109
+   ],
+   [
+    109,
+    3113,
+    3116,
+    "A, ",
+    "",
+    "lang:call:arg-drop",
+    109,
+    109
+   ],
+   [
+    109,
+    3114,
+    3117,
+    ", B",
+    "",
+    "lang:call:arg-drop",
+    109,
+    109
+   ],
+   [
+    109,
+    3142,
+    3143,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    109,
+    109
+   ],
+   [
+    131,
+    4057,
+    4058,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    131,
+    131
+   ],
+   [
+    30,
+    668,
+    669,
+    "0",
+    "1",
+    "lang:const:num:0->1",
+    28,
+    28
+   ],
+   [
+    30,
+    683,
+    686,
+    "100",
+    "101",
+    "lang:const:num:100->101",
+    28,
+    28
+   ]
+  ],
+  "concurrency": [
+   [
+    143,
+    4478,
+    4487,
+    "self.lock",
+    "nullcontext()",
+    "std:asyncio:lock-drop",
+    143,
+    143
+   ],
+   [
+    103,
+    2844,
+    2872,
+    "Task.attempts < self.retries",
+    "Task.attempts == Task.attempts",
+    "project:queue:tasks:backstop-drop",
+    103,
+    103
+   ],
+   [
+    105,
+    2942,
+    2976,
+    "Task.done_at > now.timestamp() - 1",
+    "Task.done_at == Task.done_at",
+    "project:queue:tasks:progress-drop",
+    105,
+    105
+   ],
+   [
+    119,
+    3592,
+    3630,
+    "stmt.on_conflict_do_update(Task.token)",
+    "stmt",
+    "sa:onconflict-drop",
+    119,
+    119
+   ],
+   [
+    127,
+    3888,
+    3925,
+    "datetime.now(UTC) + timedelta(days=1)",
+    "func.now()",
+    "std:datetime:now-shift-collapse",
+    127,
+    127
+   ],
+   [
+    135,
+    4184,
+    4212,
+    "item.query.with_for_update()",
+    "item.query",
+    "sa:skiplock-drop",
+    135,
+    135
+   ],
+   [
+    139,
+    4326,
+    4363,
+    "datetime.now() + timedelta(minutes=5)",
+    "func.now()",
+    "std:datetime:now-shift-collapse",
+    139,
+    139
+   ],
+   [
+    101,
+    2753,
+    2772,
+    "Task.token == token",
+    "Task.token == Task.token",
+    "project:queue:tasks:fence-drop",
+    101,
+    101
+   ],
+   [
+    101,
+    2777,
+    2807,
+    "Task.run_at <= now.timestamp()",
+    "Task.run_at == Task.run_at",
+    "project:queue:tasks:due-filter-drop",
+    101,
+    101
+   ],
+   [
+    104,
+    2893,
+    2926,
+    "Task.expires_at < now.timestamp()",
+    "Task.expires_at == Task.expires_at",
+    "project:queue:tasks:lease-recovery-drop",
+    104,
+    104
+   ],
+   [
+    131,
+    4042,
+    4058,
+    "Task.done_at > 0",
+    "Task.done_at == Task.done_at",
+    "project:queue:tasks:progress-drop",
+    131,
+    131
+   ]
+  ],
+  "fault": [
+   [
+    144,
+    4507,
+    4528,
+    "self.session.commit()",
+    "balamut_fault_raise('commit')",
+    "sa:session:raise-at:commit",
+    144,
+    144
+   ],
+   [
+    145,
+    4547,
+    4567,
+    "self.session.flush()",
+    "balamut_fault_raise('flush')",
+    "sa:session:raise-at:flush",
+    145,
+    145
+   ]
+  ],
+  "oracle": [],
+  "extreme": [
+   [
+    31,
+    812,
+    846,
+    "value = min(max(value, low), high)",
+    "pass",
+    "lang:statement:delete",
+    31,
+    31
+   ],
+   [
+    32,
+    851,
+    892,
+    "return value if value != low else low + 1",
+    "pass",
+    "lang:statement:delete",
+    32,
+    32
+   ],
+   [
+    37,
+    958,
+    999,
+    "return mask & 0xF | mask >> 2 ^ mask << 1",
+    "pass",
+    "lang:statement:delete",
+    37,
+    37
+   ],
+   [
+    43,
+    1119,
+    1130,
+    "return \"go\"",
+    "pass",
+    "lang:statement:delete",
+    43,
+    43
+   ],
+   [
+    44,
+    1135,
+    1148,
+    "return \"wait\"",
+    "pass",
+    "lang:statement:delete",
+    44,
+    44
+   ],
+   [
+    49,
+    1233,
+    1278,
+    "return all(checks) if checks else any(checks)",
+    "pass",
+    "lang:statement:delete",
+    49,
+    49
+   ],
+   [
+    54,
+    1386,
+    1440,
+    "price = amount.quantize(_CENT, rounding=ROUND_HALF_UP)",
+    "pass",
+    "lang:statement:delete",
+    54,
+    54
+   ],
+   [
+    55,
+    1445,
+    1475,
+    "total = round(float(price), 2)",
+    "pass",
+    "lang:statement:delete",
+    55,
+    55
+   ],
+   [
+    56,
+    1480,
+    1503,
+    "return int(total * 100)",
+    "pass",
+    "lang:statement:delete",
+    56,
+    56
+   ],
+   [
+    61,
+    1595,
+    1604,
+    "total = 0",
+    "pass",
+    "lang:statement:delete",
+    61,
+    61
+   ],
+   [
+    67,
+    1721,
+    1734,
+    "total += item",
+    "pass",
+    "lang:statement:delete",
+    67,
+    67
+   ],
+   [
+    68,
+    1739,
+    1751,
+    "return total",
+    "pass",
+    "lang:statement:delete",
+    68,
+    68
+   ],
+   [
+    75,
+    1921,
+    1931,
+    "return big",
+    "pass",
+    "lang:statement:delete",
+    75,
+    75
+   ],
+   [
+    81,
+    2057,
+    2079,
+    "text = \"héllo wörld\"",
+    "pass",
+    "lang:statement:delete",
+    81,
+    81
+   ],
+   [
+    83,
+    2144,
+    2167,
+    "text = text.lstrip(\"h\")",
+    "pass",
+    "lang:statement:delete",
+    83,
+    83
+   ],
+   [
+    85,
+    2205,
+    2228,
+    "text = text.rstrip(\"d\")",
+    "pass",
+    "lang:statement:delete",
+    85,
+    85
+   ],
+   [
+    86,
+    2233,
+    2260,
+    "return f\"{text} — {name}\"",
+    "pass",
+    "lang:statement:delete",
+    86,
+    86
+   ],
+   [
+    160,
+    4905,
+    4913,
+    "return 1",
+    "pass",
+    "lang:statement:delete",
+    160,
+    160
+   ],
+   [
+    162,
+    4942,
+    4950,
+    "return 0",
+    "pass",
+    "lang:statement:delete",
+    162,
+    162
+   ],
+   [
+    96,
+    2525,
+    2547,
+    "self.session = session",
+    "pass",
+    "lang:statement:delete",
+    96,
+    96
+   ],
+   [
+    97,
+    2556,
+    2582,
+    "self.lock = asyncio.Lock()",
+    "pass",
+    "lang:statement:delete",
+    97,
+    97
+   ],
+   [
+    102,
+    2821,
+    2832,
+    "return True",
+    "pass",
+    "lang:statement:delete",
+    102,
+    102
+   ],
+   [
+    104,
+    2886,
+    2926,
+    "return Task.expires_at < now.timestamp()",
+    "pass",
+    "lang:statement:delete",
+    104,
+    104
+   ],
+   [
+    105,
+    2935,
+    2976,
+    "return Task.done_at > now.timestamp() - 1",
+    "pass",
+    "lang:statement:delete",
+    105,
+    105
+   ],
+   [
+    109,
+    3095,
+    3166,
+    "rows = stmt.where(A, B).filter(Task.attempts > 0).order_by(Task.run_at)",
+    "pass",
+    "lang:statement:delete",
+    109,
+    109
+   ],
+   [
+    110,
+    3175,
+    3232,
+    "page = rows.limit(10).distinct(Task.token, Task.attempts)",
+    "pass",
+    "lang:statement:delete",
+    110,
+    110
+   ],
+   [
+    111,
+    3241,
+    3294,
+    "return page.group_by(Task.token, Task.attempts).asc()",
+    "pass",
+    "lang:statement:delete",
+    111,
+    111
+   ],
+   [
+    115,
+    3406,
+    3482,
+    "return stmt.filter(Task.attempts > 0, dedup_key=(Task.token, Task.attempts))",
+    "pass",
+    "lang:statement:delete",
+    115,
+    115
+   ],
+   [
+    119,
+    3585,
+    3630,
+    "return stmt.on_conflict_do_update(Task.token)",
+    "pass",
+    "lang:statement:delete",
+    119,
+    119
+   ],
+   [
+    123,
+    3733,
+    3785,
+    "return moment.astimezone(UTC).replace(microsecond=0)",
+    "pass",
+    "lang:statement:delete",
+    123,
+    123
+   ],
+   [
+    127,
+    3881,
+    3925,
+    "return datetime.now(UTC) + timedelta(days=1)",
+    "pass",
+    "lang:statement:delete",
+    127,
+    127
+   ],
+   [
+    131,
+    4023,
+    4067,
+    "return stmt.filter(Task.done_at > 0).first()",
+    "pass",
+    "lang:statement:delete",
+    131,
+    131
+   ],
+   [
+    135,
+    4177,
+    4212,
+    "return item.query.with_for_update()",
+    "pass",
+    "lang:statement:delete",
+    135,
+    135
+   ],
+   [
+    139,
+    4319,
+    4363,
+    "return datetime.now() + timedelta(minutes=5)",
+    "pass",
+    "lang:statement:delete",
+    139,
+    139
+   ],
+   [
+    153,
+    4774,
+    4793,
+    "return inner(value)",
+    "pass",
+    "lang:statement:delete",
+    153,
+    153
+   ],
+   [
+    151,
+    4736,
+    4764,
+    "return x * 2 if x > 0 else 0",
+    "pass",
+    "lang:statement:delete",
+    151,
+    151
+   ]
+  ],
+  "db": [
+   [
+    110,
+    3182,
+    3196,
+    "rows.limit(10)",
+    "rows",
+    "sa:limit-drop",
+    110,
+    110
+   ],
+   [
+    109,
+    3102,
+    3166,
+    "stmt.where(A, B).filter(Task.attempts > 0).order_by(Task.run_at)",
+    "stmt.where(A, B).filter(Task.attempts > 0)",
+    "sa:order-by-drop",
+    109,
+    109
+   ],
+   [
+    111,
+    3248,
+    3294,
+    "page.group_by(Task.token, Task.attempts).asc()",
+    "page.group_by(Task.token, Task.attempts).desc()",
+    "sa:asc-to-desc",
+    111,
+    111
+   ],
+   [
+    119,
+    3592,
+    3630,
+    "stmt.on_conflict_do_update(Task.token)",
+    "stmt.on_conflict_do_nothing()",
+    "sa:on-conflict-update-to-nothing",
+    119,
+    119
+   ],
+   [
+    110,
+    3206,
+    3218,
+    "Task.token, ",
+    "",
+    "sa:distinct-key-drop",
+    110,
+    110
+   ],
+   [
+    110,
+    3216,
+    3231,
+    ", Task.attempts",
+    "",
+    "sa:distinct-key-drop",
+    110,
+    110
+   ],
+   [
+    115,
+    3454,
+    3481,
+    "(Task.token, Task.attempts)",
+    "(Task.attempts,)",
+    "sa:dedup-key-drop",
+    115,
+    115
+   ],
+   [
+    115,
+    3454,
+    3481,
+    "(Task.token, Task.attempts)",
+    "(Task.token,)",
+    "sa:dedup-key-drop",
+    115,
+    115
+   ],
+   [
+    111,
+    3262,
+    3274,
+    "Task.token, ",
+    "",
+    "sa:group-by-key-drop",
+    111,
+    111
+   ],
+   [
+    111,
+    3272,
+    3287,
+    ", Task.attempts",
+    "",
+    "sa:group-by-key-drop",
+    111,
+    111
+   ],
+   [
+    109,
+    3113,
+    3116,
+    "A, ",
+    "",
+    "sa:where-predicate-drop",
+    109,
+    109
+   ],
+   [
+    109,
+    3114,
+    3117,
+    ", B",
+    "",
+    "sa:where-predicate-drop",
+    109,
+    109
+   ]
+  ],
+  "chain": [
+   [
+    123,
+    3740,
+    3762,
+    "moment.astimezone(UTC)",
+    "moment",
+    "std:datetime:astimezone-drop",
+    123,
+    123
+   ],
+   [
+    127,
+    3888,
+    3905,
+    "datetime.now(UTC)",
+    "datetime.now()",
+    "std:datetime:now-tz-drop",
+    127,
+    127
+   ],
+   [
+    109,
+    3102,
+    3144,
+    "stmt.where(A, B).filter(Task.attempts > 0)",
+    "stmt.where(A, B)",
+    "sa:filter-drop",
+    109,
+    109
+   ],
+   [
+    115,
+    3413,
+    3482,
+    "stmt.filter(Task.attempts > 0, dedup_key=(Task.token, Task.attempts))",
+    "stmt",
+    "sa:filter-drop",
+    115,
+    115
+   ],
+   [
+    131,
+    4030,
+    4059,
+    "stmt.filter(Task.done_at > 0)",
+    "stmt",
+    "sa:filter-drop",
+    131,
+    131
+   ]
+  ]
+ }
+}

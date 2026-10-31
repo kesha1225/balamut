@@ -1,0 +1,133 @@
+[project]
+name = "balamut"
+version = "0.1.0"
+description = "The Python mutator for the AI era: fast, verdict-exact mutation testing for pytest suites"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.14"
+authors = [{ name = "prostomarkeloff" }]
+keywords = ["mutation-testing", "pytest", "test-quality", "coverage"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pytest>=9.1",
+    # The upper bound is real: balamut implements pytest-fast's per-worker hooks (configure/shutdown,
+    # annotate) and its env contract, which pluggy validates against the hookspecs of the installed version.
+    "pytest-fast>=0.16,<0.17",
+    "coverage>=7.13",
+    "pluggy>=1.6",
+    "capability>=1.0",
+]
+
+[project.optional-dependencies]
+# The `db` and `chain` operator kinds (SQLAlchemy query-chain rewrites) are authored as ast-grep rules.
+sa = ["ast-grep-py>=0.45"]
+
+[project.scripts]
+balamut = "balamut.cli:main_cli"
+
+[project.urls]
+Homepage = "https://github.com/prostomarkeloff/balamut"
+
+[dependency-groups]
+dev = [
+    "ast-grep-py>=0.45",
+    "hypothesis>=6.151",
+    "hypothesmith>=0.3",
+    "pyright>=1.1.408",
+    "ruff>=0.16",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/balamut"]
+
+[tool.balamut]
+# balamut mutates itself with its own suite: the repo's dogfood profile (ships in the sdist as a live config example).
+config = "balamut_conf.py"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = "-p no:cacheprovider --import-mode=importlib"
+markers = [
+    "daemon: spawns real pytest-fast daemons (slower, end-to-end)",
+    "postgres: needs a reachable PostgreSQL (BALAMUT_TEST_PG_* env), skipped otherwise",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812",  # conflicts with the formatter
+    "D",       # docstrings are written where they carry intent, not mechanically
+    "CPY",     # no per-file copyright headers
+    "FIX",
+    "TD",
+    "ERA001",  # explanatory pseudo-code in comments is intentional
+    "PLR0911",
+    "PLR0912",
+    "PLR0913",
+    "PLR0915",
+    "PLR0917", # positional parameters mirror the call sites of the engine (workers, lanes, launchers)
+    "PLR2004",
+    "C901",
+    "S101",    # assert is used for invariants the type checker cannot express
+    "EM101",
+    "EM102",
+    "TRY003",
+    "TRY004",  # malformed external data (JSON, frames) is a ValueError, not a programming TypeError
+    "FBT001",
+    "FBT002",
+    "BLE001",
+    "TC001",   # runtime imports used only in annotations are fine under `from __future__ import annotations`
+    "TC002",
+    "TC003",
+    "ANN401",  # untyped values from vars() / json are accepted at a few explicit boundaries
+]
+
+[tool.ruff.lint.isort]
+known-third-party = ["coverage"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "ARG", "INP001", "PLC0415", "PT011", "S", "SLF001", "FBT003", "N802"]
+# The kit's matchers and site finders share one protocol signature: the context is the contract,
+# even when a piece does not read it.
+"src/balamut/operators/kit.py" = ["ARG002"]
+"src/balamut/operators/oracle.py" = ["ARG002"]
+"src/balamut/operators/concurrency.py" = ["ARG002"]
+"src/balamut/operators/db.py" = ["ARG002"]
+"src/balamut/operators/extreme.py" = ["ARG002"]
+"src/balamut/operators/src.py" = ["ARG002"]
+"src/balamut/operators/fault.py" = ["ARG002"]
+# Parity corpus files are deliberately fake, non-executable snippets: undefined names, unknown attributes
+# on `object`, bare raises and tz-less now() calls are the constructs under test.
+"tests/parity/corpus/**" = ["F821", "TRY301", "DTZ005"]
+# The engine spawns fixed argv (pytest-fast daemons, git, psql, the migration command) without a shell.
+"src/balamut/**" = ["S404", "S603", "S607"]
+# Table and column names in the store's SQL are internal constants; values are always bound parameters.
+"src/balamut/coverage/store.py" = ["S608"]
+# Database names are quoted identifiers built by the provider itself; psql gets them, never user text.
+"src/balamut/isolation/postgres.py" = ["S608"]
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["tests/parity/corpus"]  # deliberate fake snippets, never executed
+pythonVersion = "3.14"
+typeCheckingMode = "strict"
+reportPrivateUsage = false
+reportMissingTypeStubs = false

@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: balamut
+          POSTGRES_PASSWORD: balamut
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U balamut"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Sync
+        run: uv sync --all-extras
+      - name: Lint
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+      - name: Type check
+        run: uv run pyright
+      - name: Test
+        env:
+          BALAMUT_TEST_PG_HOST: 127.0.0.1
+          BALAMUT_TEST_PG_PORT: "5432"
+          BALAMUT_TEST_PG_USER: balamut
+          BALAMUT_TEST_PG_PASSWORD: balamut
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          uv run pytest -q

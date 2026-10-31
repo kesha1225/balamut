@@ -1,0 +1,13 @@
+[project]
+name = "balamut-complex-operators"
+version = "0.1.0"
+description = "Literature-grounded heavy mutation operators as a third-party balamut kind"
+requires-python = ">=3.14"
+dependencies = ["balamut>=0.1"]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/balamut_complex"]

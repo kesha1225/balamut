@@ -568,6 +568,7 @@ def _run(
         mutant_timeout=args.mutant_timeout,
         timeout_retries=args.timeout_retries,
         timeout_retry_multiplier=args.timeout_retry_multiplier,
+        daemon_ttl=profile.daemon_ttl,
         progress_mode=ProgressMode(args.progress),
         stats_path=stats_path,
         detailed=args.detailed,

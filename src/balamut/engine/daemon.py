@@ -81,8 +81,9 @@ _OUTCOMES = frozenset({"passed", "failed", "error", "skipped", "xfailed", "xpass
 _FAILED = frozenset({"failed", "error"})
 _PHASES = frozenset({"setup", "call", "teardown"})
 _READY_TIMEOUT = 180.0
-# The idle TTL of a daemon bounds the life of an orphan (the driver killed past its teardown). A running campaign
-# never idles that long: the no-progress watchdog fires at the mutant timeout.
+# The idle TTL of a daemon bounds the life of an orphan (the driver killed past its teardown). A lane can outlast
+# it for pool members that drained their share early: a clean TTL exit is stale, not fatal — await_pool respawns
+# the daemon. The profile overrides the TTL through `daemon_ttl` (None keeps this built-in default).
 _IDLE_TTL_S = 600
 _CONNECT_ATTEMPTS = 50
 _CONNECT_RETRY_DELAY = 0.1
@@ -119,6 +120,7 @@ class Daemon:
     workers: int
     env: EnvMap
     persist_workers: bool = True
+    idle_ttl: int = _IDLE_TTL_S  # a respawn keeps the configured TTL
     respawns: int = 0  # every hard reset gets a new address, so an orphaned thread cannot reconnect
 
 
@@ -425,9 +427,19 @@ def campaign_addopts(base: str, covering: Iterable[str], *, hang_dump_after: flo
 
 
 def spawn_daemon(
-    address: str, mutant_file: Path, workers: int, env: EnvMap, log: IO[bytes], *, persist_workers: bool = True
+    address: str,
+    mutant_file: Path,
+    workers: int,
+    env: EnvMap,
+    log: IO[bytes],
+    *,
+    persist_workers: bool = True,
+    idle_ttl: int = _IDLE_TTL_S,
 ) -> subprocess.Popen[bytes]:
-    """Start a resident daemon; the mutant file and the kill-dependency switch are not fingerprinted."""
+    """Start a resident daemon; the mutant file and the kill-dependency switch are not fingerprinted.
+
+    ``idle_ttl`` is the seconds of idleness pytest-fast tolerates before a clean exit: an orphan never outlives
+    it, and the campaign treats the exit as stale rather than fatal."""
     spawn_env = {
         **env,
         "PYTHONWARNINGS": "ignore::DeprecationWarning",
@@ -442,7 +454,7 @@ def spawn_daemon(
         "--address",
         address,
         "--ttl",
-        str(_IDLE_TTL_S),
+        str(idle_ttl),
         "--workers",
         str(workers),
     ]
@@ -505,12 +517,15 @@ def spawn_pool(
     *,
     scratch: Path,
     persist_workers: bool = True,
+    idle_ttl: int | None = None,
 ) -> list[Daemon]:
     """Spawn ``daemons`` daemons; daemon ``k`` runs with ``overlays[k]`` (its isolation slot) when there are any.
 
-    Spec and log files are keyed by the address base, so two campaigns on one host never share a mutant file."""
+    Spec and log files are keyed by the address base, so two campaigns on one host never share a mutant file.
+    ``idle_ttl`` is the configured daemon TTL; None keeps the built-in default."""
     if overlays and len(overlays) < daemons:
         raise CampaignSetupError(f"{daemons} daemons need {daemons} isolation slots, got {len(overlays)}")
+    ttl = idle_ttl if idle_ttl is not None else _IDLE_TTL_S
     scratch.mkdir(parents=True, exist_ok=True)
     run_tag = sha(address_base)[:8]
     pool: list[Daemon] = []
@@ -522,17 +537,36 @@ def spawn_pool(
         kill_stale_daemon(address)
         Path(address).unlink(missing_ok=True)  # a stale socket file would look ready before the new daemon binds
         daemon_env = {**env, **overlays[index]} if overlays else env
-        proc = spawn_daemon(address, mutant_file, workers, daemon_env, log, persist_workers=persist_workers)
-        pool.append(Daemon(address, mutant_file, proc, log, workers, daemon_env, persist_workers))
+        proc = spawn_daemon(
+            address, mutant_file, workers, daemon_env, log, persist_workers=persist_workers, idle_ttl=ttl
+        )
+        pool.append(Daemon(address, mutant_file, proc, log, workers, daemon_env, persist_workers, idle_ttl=ttl))
     note = " with isolated slots" if overlays else " sharing the environment"
     sys.stderr.write(f"daemons: {daemons} x {workers} workers{note} (logs {scratch}/daemon-{run_tag}-*.log)\n")
     return pool
 
 
 def await_pool(pool: list[Daemon]) -> None:
+    """Wait for every pool member to bind its socket; respawn a member that exited cleanly (its idle TTL).
+
+    A lane reuses the pool, so a member may have idled out since the previous lane: a clean exit 0 is stale,
+    not fatal. An unclean exit or a missed deadline raises."""
     deadline = time.monotonic() + _READY_TIMEOUT
     for daemon in pool:
-        wait_ready(daemon.address, daemon.proc, deadline)
+        if daemon.proc.poll() == 0:
+            sys.stderr.write(f"daemon {daemon.address} idled out (exit 0); respawning it\n")
+            respawn_daemon(daemon)
+            continue
+        if daemon.proc.poll() is not None:
+            raise RuntimeError(f"the pytest-fast daemon died (exit {daemon.proc.returncode}); see its log")
+        try:
+            wait_ready(daemon.address, daemon.proc, deadline)
+        except RuntimeError:
+            if daemon.proc.poll() == 0:  # the TTL fired while the daemon was still alive at the first poll
+                sys.stderr.write(f"daemon {daemon.address} idled out (exit 0); respawning it\n")
+                respawn_daemon(daemon)
+            else:
+                raise
 
 
 def shutdown_pool(pool: list[Daemon]) -> None:
@@ -575,6 +609,7 @@ def respawn_daemon(daemon: Daemon) -> None:
         daemon.env,
         daemon.log,
         persist_workers=daemon.persist_workers,
+        idle_ttl=daemon.idle_ttl,
     )
     wait_ready(daemon.address, daemon.proc, time.monotonic() + _READY_TIMEOUT)
 

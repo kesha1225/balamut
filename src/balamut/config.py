@@ -169,6 +169,8 @@ class Profile:
     substrate_inputs: tuple[str, ...] = DEFAULT_SUBSTRATE_INPUTS
     mutant_timeout: float = 8.0
     timeout_retries: int = 1
+    # Seconds a campaign daemon idles before it exits cleanly; None keeps the engine's built-in TTL (600 s).
+    daemon_ttl: int | None = None
     state_dir: Path = field(default_factory=lambda: Path(".balamut"))
     preflight: tuple[tuple[str, ...], ...] = ()
     coverage: CoverageSettings = field(default_factory=CoverageSettings)
@@ -215,6 +217,7 @@ def init(
     substrate_inputs: tuple[str, ...] = DEFAULT_SUBSTRATE_INPUTS,
     mutant_timeout: float = 8.0,
     timeout_retries: int = 1,
+    daemon_ttl: int | None = None,
     preflight: tuple[tuple[str, ...], ...] = (),
     coverage_concurrency: tuple[str, ...] = ("thread",),
     coverage_workers_cap: int = 4,
@@ -250,6 +253,7 @@ def init(
         substrate_inputs=substrate_inputs,
         mutant_timeout=mutant_timeout,
         timeout_retries=timeout_retries,
+        daemon_ttl=daemon_ttl,
         preflight=preflight,
         coverage=CoverageSettings(concurrency=coverage_concurrency, workers_cap=coverage_workers_cap),
         isolation=isolation if isolation is not None else IsolationSettings(),
@@ -405,6 +409,8 @@ def _validate_profile(profile: Profile, *, registered: frozenset[str] = frozense
         raise ProfileError("mutant_timeout must be positive")
     if profile.timeout_retries < 0:
         raise ProfileError("timeout_retries must be >= 0")
+    if profile.daemon_ttl is not None and profile.daemon_ttl <= 0:
+        raise ProfileError("daemon_ttl must be positive")
     if profile.coverage.workers_cap < 1:
         raise ProfileError("coverage.workers_cap must be >= 1")
     isolation = profile.isolation

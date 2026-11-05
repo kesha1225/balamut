@@ -687,8 +687,9 @@ def test_respawn_daemon_kills_waits_and_cleans_sockets(tmp_path: Path, monkeypat
         log: IO[bytes],
         *,
         persist_workers: bool = True,
+        idle_ttl: int = 600,
     ) -> Proc:
-        spawned.append((address, mutant_file, workers, env, log, persist_workers))
+        spawned.append((address, mutant_file, workers, env, log, persist_workers, idle_ttl))
         return Proc()
 
     def fake_wait_ready(address: str, _proc: daemon.DaemonProcess, deadline: float) -> None:
@@ -720,7 +721,7 @@ def test_respawn_daemon_kills_waits_and_cleans_sockets(tmp_path: Path, monkeypat
     assert not target.mutant_file.read_text(encoding="utf-8")
     assert readied[0][0] == str(new_addr)
     assert readied[0][1] > daemon.time.monotonic()
-    assert spawned == [(str(new_addr), target.mutant_file, 1, {}, target.log, True)]
+    assert spawned == [(str(new_addr), target.mutant_file, 1, {}, target.log, True, 600)]
 
 
 def test_respawn_preserves_a_non_numeric_r_suffix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -821,6 +822,23 @@ def test_spawn_daemon_passes_persist_workers_and_a_new_session(tmp_path: Path, m
     assert kwargs["stderr"] is daemon.subprocess.STDOUT
     assert kwargs["env"] is not None
     assert proc is not None
+
+
+def test_spawn_daemon_passes_the_idle_ttl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pops: list[list[str]] = []
+
+    def fake_popen(argv: list[str], **_kwargs: object) -> FakeProcess:
+        pops.append(argv)
+        return FakeProcess()
+
+    monkeypatch.setattr(daemon.subprocess, "Popen", fake_popen)
+    log = BytesIO()
+
+    daemon.spawn_daemon("sock", tmp_path / "m.json", 1, {}, log)
+    daemon.spawn_daemon("sock", tmp_path / "m.json", 1, {}, log, idle_ttl=90)
+
+    assert pops[0][pops[0].index("--ttl") + 1] == "600"
+    assert pops[1][pops[1].index("--ttl") + 1] == "90"
 
 
 def test_kill_stale_daemon_kills_a_matching_orphan(
@@ -1099,6 +1117,77 @@ def test_await_pool_waits_for_each_daemon(tmp_path: Path, monkeypatch: pytest.Mo
 
     assert [a for a, _d in waited] == ["sock-0", "sock-1"]
     assert all(d > 100.0 for _a, d in waited)
+
+
+def test_spawn_pool_resolves_and_stores_the_idle_ttl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    scratch = tmp_path / "scratch"
+    _spawn_pool_harness(monkeypatch, scratch)
+
+    default = daemon.spawn_pool("base", 1, 1, {}, (), scratch=scratch)
+    assert default[0].idle_ttl == 600
+    default[0].log.close()
+
+    custom = daemon.spawn_pool("base", 1, 1, {}, (), scratch=scratch, idle_ttl=90)
+    assert custom[0].idle_ttl == 90
+    custom[0].log.close()
+
+
+def test_await_pool_respawns_a_cleanly_exited_daemon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    respawned: list[daemon.Daemon] = []
+    monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
+    monkeypatch.setattr(daemon, "wait_ready", lambda *_a: None)
+    alive = fake_daemon(tmp_path, address="alive", index=0)
+    idle = fake_daemon(tmp_path, address="idle", index=1)
+    idle.proc.returncode = 0
+
+    daemon.await_pool([alive, idle])
+
+    assert respawned == [idle]
+
+
+def test_await_pool_raises_on_an_unclean_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    respawned: list[daemon.Daemon] = []
+    monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
+    broken = fake_daemon(tmp_path)
+    broken.proc.returncode = 3
+
+    with pytest.raises(RuntimeError, match="died"):
+        daemon.await_pool([broken])
+
+    assert respawned == []
+
+
+def test_await_pool_respawns_when_the_ttl_fires_mid_await(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    respawned: list[daemon.Daemon] = []
+    monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
+    target = fake_daemon(tmp_path)
+
+    def ttl_exit(_address: str, proc: FakeProcess, _deadline: float) -> None:
+        proc.returncode = 0
+        raise RuntimeError("the pytest-fast daemon died (exit 0); see its log")
+
+    monkeypatch.setattr(daemon, "wait_ready", ttl_exit)
+
+    daemon.await_pool([target])
+
+    assert respawned == [target]
+
+
+def test_respawn_daemon_reuses_the_configured_idle_ttl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    spawned: list[dict[str, object]] = []
+
+    def fake_spawn(_address: str, *_a: object, **kwargs: object) -> FakeProcess:
+        spawned.append(kwargs)
+        return FakeProcess()
+
+    monkeypatch.setattr(daemon, "spawn_daemon", fake_spawn)
+    monkeypatch.setattr(daemon, "wait_ready", lambda *_a: None)
+    target = fake_daemon(tmp_path)
+    target.idle_ttl = 90
+
+    daemon.respawn_daemon(target)
+
+    assert spawned == [{"persist_workers": True, "idle_ttl": 90}]
 
 
 def test_shutdown_pool_terminates_waits_and_cleans_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1542,7 +1631,7 @@ def test_kill_stale_daemon_suppresses_the_fallback_kill_error(
 
 def test_spawn_pool_passes_daemon_arguments_in_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     scratch = tmp_path / "scratch"
-    calls: list[tuple[str, Path, int, dict[str, str], IO[bytes], bool]] = []
+    calls: list[tuple[str, Path, int, dict[str, str], IO[bytes], bool, int]] = []
 
     def fake_spawn(
         address: str,
@@ -1552,8 +1641,9 @@ def test_spawn_pool_passes_daemon_arguments_in_order(tmp_path: Path, monkeypatch
         log: IO[bytes],
         *,
         persist_workers: bool = True,
+        idle_ttl: int = 600,
     ) -> FakeProcess:
-        calls.append((address, mutant_file, workers, env, log, persist_workers))
+        calls.append((address, mutant_file, workers, env, log, persist_workers, idle_ttl))
         return FakeProcess()
 
     def fake_kill_stale(_address: str) -> None:
@@ -1568,13 +1658,14 @@ def test_spawn_pool_passes_daemon_arguments_in_order(tmp_path: Path, monkeypatch
 
     run_tag = daemon.sha("base")[:8]
     assert calls == [
-        ("base.0", scratch / f"mutant-{run_tag}-0.json", 3, {"A": "1"}, pool[0].log, False),
-        ("base.1", scratch / f"mutant-{run_tag}-1.json", 3, {"A": "1"}, pool[1].log, False),
+        ("base.0", scratch / f"mutant-{run_tag}-0.json", 3, {"A": "1"}, pool[0].log, False, 600),
+        ("base.1", scratch / f"mutant-{run_tag}-1.json", 3, {"A": "1"}, pool[1].log, False, 600),
     ]
     assert [d.address for d in pool] == ["base.0", "base.1"]
     assert [d.workers for d in pool] == [3, 3]
     assert [d.env for d in pool] == [{"A": "1"}, {"A": "1"}]
     assert [d.persist_workers for d in pool] == [False, False]
+    assert [d.idle_ttl for d in pool] == [600, 600]
 
 
 def test_fresh_worker_switch_uses_a_bounded_named_pool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

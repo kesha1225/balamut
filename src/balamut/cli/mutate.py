@@ -16,6 +16,8 @@ import os
 import sys
 import time
 from collections import Counter
+from dataclasses import dataclass
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 
@@ -51,6 +53,7 @@ from balamut.engine.progress import ProgressMode
 from balamut.engine.results import CampaignScopeChangedError, CampaignSetupError, MutantResult
 from balamut.engine.stats import CampaignTimings, empty_campaign_timings, empty_stats, write_campaign_stats
 from balamut.engine.timeouts import timeout_policy_error
+from balamut.gitutil import git_output_in
 from balamut.isolation import EnvMap, Isolation, isolation_for
 from balamut.operators.facts import SelfCovered
 from balamut.paths import campaign_scratch, default_address, ensure_state_dir, substrate_path
@@ -62,6 +65,7 @@ from balamut.report.agent import (
     render_agent_report,
     split_cold_records,
 )
+from balamut.report.html import ReportSummary, RunInfo, read_baseline, render_html, write_html
 from balamut.runtime.inmemory import code_reachable
 from balamut.runtime.plugin import TEST_ROOTS_ENV
 
@@ -131,6 +135,12 @@ def _parser(profile: Profile) -> argparse.ArgumentParser:
     output.add_argument("--json", action="store_true", help="print the raw results as a JSON array")
     output.add_argument("--agent-json", action="store_true", help="print the clustered agent report as JSON")
     output.add_argument("--flat", action="store_true", help="print survivors by bucket instead of clusters")
+    parser.add_argument("--html", default="", help="also write a self-contained HTML report to this path")
+    parser.add_argument(
+        "--html-baseline",
+        default="",
+        help="an earlier HTML report: --html compares against it and carries its score history forward",
+    )
     parser.add_argument("--detailed", action="store_true", help="a per-mutant cost breakdown on stderr and JSON")
     parser.add_argument("--detailed-json", default="", help="where --detailed writes its JSON")
     parser.add_argument("--stats-json", default="", help="an atomic JSON snapshot of the campaign's progress")
@@ -140,6 +150,75 @@ def _parser(profile: Profile) -> argparse.ArgumentParser:
 def _error(message: str) -> int:
     sys.stderr.write(f"error: {message}\n")
     return EXIT_USAGE
+
+
+@dataclass(frozen=True, slots=True)
+class HtmlRequest:
+    """Where ``--html`` writes and the earlier report it compares against, both checked before the campaign runs."""
+
+    path: Path
+    baseline: ReportSummary | None
+
+
+def _html_request(args: argparse.Namespace) -> HtmlRequest | None:
+    """The validated ``--html`` options; a ValueError names the problem. The baseline may be the output path
+    itself: it is read here, before the new report replaces it."""
+    if args.html_baseline and not args.html:
+        raise ValueError("--html-baseline needs --html")
+    if not args.html:
+        return None
+    path = Path(args.html)
+    if not path.parent.is_dir():
+        raise ValueError(f"the directory of --html does not exist: {path.parent}")
+    if not args.html_baseline:
+        return HtmlRequest(path, None)
+    try:
+        baseline = read_baseline(Path(args.html_baseline))
+    except ValueError as exc:
+        raise ValueError(f"invalid --html-baseline: {exc}") from exc
+    return HtmlRequest(path, baseline)
+
+
+def _scope_label(args: argparse.Namespace, scope: DiffScope | None) -> tuple[str, ...]:
+    if scope is not None:
+        return (f"diff {scope.diff_base_sha[:12]}..{scope.head_sha[:12]}",)
+    if args.diff:
+        return (f"diff against {args.diff}",)
+    return tuple(args.paths)
+
+
+def _write_html_report(
+    request: HtmlRequest,
+    args: argparse.Namespace,
+    *,
+    results: list[MutantResult],
+    sources: SourceCache,
+    profile: Profile,
+    kinds: list[str],
+    scope: DiffScope | None,
+    started: float,
+) -> None:
+    """Write the HTML report; as with the printed report, a failure here never fails the campaign."""
+    root = profile.root
+    branch = git_output_in(root, "rev-parse", "--abbrev-ref", "HEAD") or ""
+    info = RunInfo(
+        project=root.name,
+        generated_at=datetime.now().astimezone(),
+        scope=_scope_label(args, scope),
+        kinds=tuple(kinds),
+        commit=git_output_in(root, "rev-parse", "--short=12", "HEAD") or "",
+        branch="" if branch == "HEAD" else branch,  # a detached HEAD has no branch to name
+        duration_s=time.perf_counter() - started,
+    )
+    try:
+        page = render_html(results, sources, info=info, semantic=profile.operators.semantic, baseline=request.baseline)
+        write_html(request.path, page)
+    except (OSError, ValueError, TypeError) as exc:
+        sys.stderr.write(
+            f"writing the HTML report failed ({exc!r}); the verdicts are cached: run again for cache hits\n"
+        )
+        return
+    sys.stderr.write(f"html report: {request.path}\n")
 
 
 def campaign_environment(profile: Profile, isolation: Isolation) -> EnvMap:
@@ -253,9 +332,14 @@ def main(argv: list[str]) -> int:
         profile = load_profile(Path.cwd())
     except ProfileError as exc:
         return _error(f"invalid [tool.balamut]: {exc}")
+    started = time.perf_counter()
     args = _parser(profile).parse_args(argv)
     layout = profile.layout
     timings = empty_campaign_timings()
+    try:
+        html_report = _html_request(args)
+    except ValueError as exc:
+        return _error(str(exc))
 
     stats_path = Path(args.stats_json) if args.stats_json else None
     if stats_path is not None:
@@ -316,6 +400,8 @@ def main(argv: list[str]) -> int:
             cov_path=cov_path,
             stats_path=stats_path,
             timings=timings,
+            html_report=html_report,
+            started=started,
         )
     finally:
         store.close()
@@ -336,6 +422,8 @@ def _run(
     cov_path: Path,
     stats_path: Path | None,
     timings: CampaignTimings,
+    html_report: HtmlRequest | None,
+    started: float,
 ) -> int:
     layout = profile.layout
     if invalidation:
@@ -418,6 +506,10 @@ def _run(
         _write_empty_stats(stats_path, timings)
         if args.json and stats_path is not None:
             sys.stdout.write("[]\n")
+        if html_report is not None:
+            _write_html_report(
+                html_report, args, results=[], sources={}, profile=profile, kinds=kinds, scope=scope, started=started
+            )
         return 0
 
     mutants, sources, reexport = enumerate_paths(
@@ -504,7 +596,19 @@ def _run(
         return EXIT_SCOPE_CHANGED
     except (CampaignSetupError, CollectionError) as error:
         return _error(str(error))
-    return _emit(args, results, store=store, sources=sources, profile=profile)
+    code = _emit(args, results, store=store, sources=sources, profile=profile)
+    if html_report is not None:
+        _write_html_report(
+            html_report,
+            args,
+            results=results,
+            sources=sources,
+            profile=profile,
+            kinds=kinds,
+            scope=scope,
+            started=started,
+        )
+    return code
 
 
 def _emit(

@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import subprocess
 import textwrap
 import time
 from collections.abc import Callable
@@ -33,8 +35,9 @@ from balamut.engine.results import CampaignScopeChangedError, MutantResult, Muta
 from balamut.isolation import isolation_for
 from balamut.operators.src import enumerate_mutants
 from balamut.report.agent import MutantRecord
+from balamut.report.html import read_baseline
 from bm_support import make_layout, write_file
-from bm_support.scopes import pinned
+from bm_support.scopes import pinned, scope
 from bm_support.substrates import expected_substrate_metadata, write_valid_coverage
 
 type Kwargs = dict[str, object]
@@ -1784,3 +1787,131 @@ def test_mechanism_filters_mutants_to_the_chosen_mechanisms(tmp_path: Path, monk
     assert call.calls == 1
     assert call.mutants
     assert all(mutant.path == "src/x.py" for mutant in call.mutants)
+
+
+def test_html_baseline_needs_html(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    argv = [*_argv(tmp_path, kind="oracle", paths=[]), "--html-baseline", str(tmp_path / "old.html")]
+
+    assert mutate.main(argv) == 2
+    assert "--html-baseline needs --html" in capsys.readouterr().err
+
+
+def test_html_into_a_missing_directory_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    report = tmp_path / "missing" / "report.html"
+
+    assert mutate.main([*_argv(tmp_path, kind="oracle", paths=[]), "--html", str(report)]) == 2
+    assert "the directory of --html does not exist" in capsys.readouterr().err
+
+
+def test_an_invalid_html_baseline_stops_before_the_campaign(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    old = write_file(tmp_path / "old.html", "<html><body>not a report</body></html>")
+    call = _CampaignCall()
+    monkeypatch.setattr(mutate, "run_campaign", _recording_campaign(call))
+    argv = [*_argv(tmp_path, kind="oracle", paths=[]), "--html", str(tmp_path / "r.html"), "--html-baseline", str(old)]
+
+    assert mutate.main(argv) == 2
+    assert "invalid --html-baseline" in capsys.readouterr().err
+    assert call.calls == 0
+
+
+def test_an_empty_campaign_still_writes_its_html_report(tmp_path: Path) -> None:
+    report = tmp_path / "report.html"
+
+    assert mutate.main([*_argv(tmp_path, kind="oracle", paths=[]), "--html", str(report)]) == 0
+    assert read_baseline(report)["counts"] == {"killed": 0, "survived": 0, "timeout": 0, "no_coverage": 0}
+
+
+def _html_campaign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *verdicts: MutantStatus) -> list[str]:
+    """argv of a campaign over one module whose single mutant gets ``verdicts`` run after run, with ``--html``."""
+    source = "def is_adult(age: int) -> bool:\n    return age >= 18\n"
+    write_file(tmp_path / "src/calc.py", source)
+    coverage = tmp_path / "coverage"
+    coverage.write_bytes(b"placeholder")
+    compare = next(m for m in enumerate_mutants("src/calc.py", source) if m.original == "age >= 18")
+    pending = iter(verdicts)
+
+    def load(_path: Path, **_kwargs: object) -> CoverageMap:
+        return CoverageMap(by_file={})
+
+    def judge(*_args: object, **_kwargs: object) -> list[MutantResult]:
+        return [MutantResult(compare, next(pending), 1, "k", ("tests/test_calc.py::test_adult",))]
+
+    monkeypatch.setattr(mutate, "load_coverage_map", load)
+    monkeypatch.setattr(mutate, "run_campaign", judge)
+    return [
+        "src/calc.py",
+        "--kind",
+        "src",
+        "--coverage",
+        str(coverage),
+        "--cache",
+        str(tmp_path / "c.sqlite"),
+        "--address",
+        str(tmp_path / "unused.sock"),
+        "--html",
+        str(tmp_path / "report.html"),
+    ]
+
+
+def test_the_html_report_compares_with_the_report_it_replaces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = _html_campaign(tmp_path, monkeypatch, MutantStatus.SURVIVED, MutantStatus.KILLED)
+    report = tmp_path / "report.html"
+
+    assert mutate.main(argv) == 0
+    assert read_baseline(report)["score"] == 0.0
+    assert mutate.main([*argv, "--html-baseline", str(report)]) == 0  # the baseline is read before it is replaced
+
+    summary = read_baseline(report)
+    assert summary["score"] == 1.0
+    assert summary["scope"] == ["src/calc.py"]
+    assert [point["score"] for point in summary["history"]] == [0.0]
+    assert f"html report: {report}" in capsys.readouterr().err
+
+
+def _git(root: Path, *args: str) -> str:
+    command = ["git", "-C", str(root), "-c", "user.email=t@example.com", "-c", "user.name=t", *args]
+    return subprocess.run(command, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def test_the_html_report_names_the_branch_the_commit_and_the_run_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    argv = _html_campaign(tmp_path, monkeypatch, MutantStatus.KILLED, MutantStatus.KILLED)
+    report = tmp_path / "report.html"
+    _git(tmp_path, "init", "-q", "-b", "trunk")
+    _git(tmp_path, "add", "src")
+    _git(tmp_path, "commit", "-q", "-m", "calc")
+
+    assert mutate.main(argv) == 0
+    summary = read_baseline(report)
+    assert summary["commit"] == _git(tmp_path, "rev-parse", "HEAD")[:12]
+    assert summary["branch"] == "trunk"
+    assert re.search(r"<dt>Run time</dt><dd>(under 1 s|\d+ s)</dd>", report.read_text(encoding="utf-8"))
+
+    _git(tmp_path, "checkout", "-q", "--detach")
+    assert mutate.main(argv) == 0
+    assert read_baseline(report)["branch"] == ""  # a detached HEAD names no branch
+
+
+def test_a_failed_html_write_is_reported_and_keeps_the_campaign_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = _html_campaign(tmp_path, monkeypatch, MutantStatus.KILLED)
+    (tmp_path / "report.html").mkdir()
+
+    assert mutate.main(argv) == 0
+    assert "writing the HTML report failed" in capsys.readouterr().err
+    assert not (tmp_path / ".report.html.tmp").exists()
+
+
+def test_the_report_scope_names_the_pinned_diff_the_base_or_the_paths() -> None:
+    pinned_scope = replace(scope(), diff_base_sha="a" * 40, head_sha="b" * 40)
+    args = argparse.Namespace(paths=["src"], diff="origin/main")
+
+    assert mutate._scope_label(args, pinned_scope) == (f"diff {'a' * 12}..{'b' * 12}",)
+    assert mutate._scope_label(args, None) == ("diff against origin/main",)
+    assert mutate._scope_label(argparse.Namespace(paths=["src", "lib"], diff=""), None) == ("src", "lib")

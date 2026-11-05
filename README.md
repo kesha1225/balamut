@@ -114,7 +114,7 @@ init(
 | `balamut new` | Scaffold the project config: wire `[tool.balamut]` in the pyproject, write the config file with the detected layout and the live diff base. |
 | `balamut substrate` | Build or reuse the coverage substrate of the current tree, without git; `--rebuild` forces a new generation. |
 | `balamut doctor` | The gate's prerequisites, read-only: substrate integrity and compatibility, isolation target, preflight. |
-| `balamut mutate` | A campaign over paths, a diff or a pinned scope; over paths it first refreshes the substrate to the current tree. `--json` prints raw results, `--agent-json` a clustered report. |
+| `balamut mutate` | A campaign over paths, a diff or a pinned scope; over paths it first refreshes the substrate to the current tree. `--json` prints raw results, `--agent-json` a clustered report, `--html` writes a page for people. |
 | `balamut confirm` | Re-run the mutants of some paths after measuring new tests. |
 | `balamut live` | `mutate` with a live dashboard: done/total, throughput, verdicts and an ETA weighted by covering-test cost. |
 | `balamut estimate` | The expected duration of a campaign, from the substrate's coverage and measured test costs. |
@@ -190,6 +190,21 @@ the `balamut.sinks` entry-point group to receive every terminal report (for exam
 sink never changes the result. `balamut mutate --agent-json` emits the same findings clustered for machine
 consumption — survivors grouped by mutation with the covering tests to strengthen and the sites to cover — so a
 coding agent can read the report, write the tests and re-run the gate on its own.
+
+`balamut mutate --html report.html` also writes a self-contained HTML page for people: the mutation score and verdict
+counts, a mosaic of every mutant, scores by mutant kind and risk area, high-priority survivors grouped by idiom, a
+sortable file table, and each file's code with its mutants in place (the edit, the killing test or the covering tests
+to strengthen). The page needs no network and is built from the campaign's own results, not from the verdict cache; a
+failed write is reported on stderr and does not fail the campaign. `balamut diff` and `balamut live` pass `--html` on
+to `mutate`. Pass an earlier report as `--html-baseline` to compare the runs: the page shows the changes, draws the
+score trend and carries the history forward. The baseline is read before the campaign starts, so one path can serve
+as both:
+
+```console
+$ balamut mutate src --html report.html --html-baseline report.html
+```
+
+![The HTML report after three runs: score, verdicts, every mutant and the progress since the baseline](docs/images/html-report-summary.png)
 
 ## How it works
 

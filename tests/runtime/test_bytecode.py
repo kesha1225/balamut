@@ -363,6 +363,20 @@ def test_edit_const_256_uses_load_const_opcode() -> None:
     assert edited.co_consts[-1] == 256
 
 
+def test_edit_const_minus_one_float_is_not_the_common_int() -> None:
+    # `-1.0 == -1`, but the load must keep the float: a `0.0` mutated by a -1 delta yields -1.0, and on 3.15+
+    # `-1` loads through LOAD_COMMON_CONSTANT, so an equality lookup would load the int.
+    def f() -> int:
+        return 0
+
+    code = f.__code__
+    offset = _first_const_load_offset(code, 0)
+    edited = _edit_const(code, offset, -1.0)
+    assert edited is not None
+    assert _run(edited) == ("v", -1.0)
+    assert isinstance(_run(edited)[1], float)
+
+
 def test_edit_const_refuses_256th_const_index() -> None:
     def f() -> int:
         return 0

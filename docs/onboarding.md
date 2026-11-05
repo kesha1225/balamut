@@ -6,7 +6,7 @@ suite), so the timings are representative of a mid-sized pure-Python library.
 
 ## 0. Prerequisites
 
-* Python 3.14 (the bytecode fast path and `sys.monitoring` events are version-specific).
+* Python 3.14+ (the bytecode fast path and `sys.monitoring` events are version-specific).
 * A green test suite on the original code — balamut measures the suite first and treats tests
   that fail on the original as baseline failures, never as kills.
 * POSIX (daemons talk over Unix sockets); git for the diff gate.

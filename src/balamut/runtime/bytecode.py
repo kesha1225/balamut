@@ -3,7 +3,8 @@ or one constant) instead of recompiling the whole module per mutant.
 
 Only size-preserving edits are made, so ``co_code`` keeps its alignment and the jump table, exception table and
 inline caches stay valid: the arg of ``BINARY_OP``/``COMPARE_OP``/``IS_OP``/``CONTAINS_OP``, a swap between
-``LOAD_SMALL_INT`` and ``LOAD_CONST`` (both two bytes, no cache) or a new entry in ``co_consts``. Everything else
+``LOAD_SMALL_INT``, ``LOAD_CONST`` and ``LOAD_COMMON_CONSTANT`` (all two bytes, no cache; ``True``/``False``/
+``None``/``-1`` load through the last one since 3.15) or a new entry in ``co_consts``. Everything else
 returns None and the caller falls back to ``compile_function_code``: structural operators, a constant inside a
 foldable constant expression (CPython would fold it, so the bytecode would diverge from a recompile), a
 ``co_consts`` index of 256 or more (it needs ``EXTENDED_ARG``, a size change).
@@ -49,7 +50,35 @@ _COMPARE_OP = dis.opmap["COMPARE_OP"]
 _IS_OP = dis.opmap["IS_OP"]
 _CONTAINS_OP = dis.opmap["CONTAINS_OP"]
 _EXTENDED_ARG = dis.opmap["EXTENDED_ARG"]
-_CONST_LOAD_OPS = frozenset({_SMALL_INT, _LOAD_CONST})
+# `LOAD_COMMON_CONSTANT` (3.15+): True/False/None/-1 no longer sit in co_consts but load with a fixed arg.
+# Absent on 3.14, where they load through LOAD_CONST and the table below stays empty.
+_COMMON_CONST = dis.opmap.get("LOAD_COMMON_CONSTANT")
+
+
+def _common_const_args() -> tuple[tuple[_Const, int], ...]:
+    """The ``(value, arg)`` of the constants this interpreter loads through ``LOAD_COMMON_CONSTANT``.
+
+    Read from compiled probes, like the operator-arg tables: the opcode's arg assignment is an interpreter
+    detail, never hardcoded. A probe whose constant loads any other way (3.14: LOAD_CONST) contributes nothing."""
+    args: list[tuple[_Const, int]] = []
+    for literal, value in (("True", True), ("False", False), ("None", None), ("-1", -1)):
+        module_code = compile(f"def _probe(): return {literal}", "<bcmut>", "exec")
+        fn_code = next(const for const in module_code.co_consts if isinstance(const, types.CodeType))
+        load = next(
+            (
+                instr
+                for instr in dis.get_instructions(fn_code)
+                if instr.opcode in (_LOAD_CONST, _SMALL_INT, _COMMON_CONST)
+            ),
+            None,
+        )
+        if load is not None and load.arg is not None and _COMMON_CONST is not None and load.opcode == _COMMON_CONST:
+            args.append((value, load.arg))
+    return tuple(args)
+
+
+_COMMON_CONST_ARGS = _common_const_args()
+_CONST_LOAD_OPS = frozenset((_SMALL_INT, _LOAD_CONST) + ((_COMMON_CONST,) if _COMMON_CONST is not None else ()))
 _COMPARE_OPS = frozenset({_COMPARE_OP, _IS_OP, _CONTAINS_OP})
 
 
@@ -196,9 +225,22 @@ def _set_op_arg(code: types.CodeType, offset: int, opcode: int, arg: int) -> typ
     return code.replace(co_code=bytes(raw))
 
 
+def _common_arg(value: _Const) -> int | None:
+    """The ``LOAD_COMMON_CONSTANT`` arg for ``value``; matched by exact type (``True``/``False``/``-1`` collide by
+    ``==`` with ``1``/``0``/``-1.0``, and a ``0.0`` mutated by -1 yields the float)."""
+    for val, arg in _COMMON_CONST_ARGS:
+        if type(value) is type(val) and value == val:
+            return arg
+    return None
+
+
 def _edit_const(code: types.CodeType, offset: int, value: _Const) -> types.CodeType | None:
     if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 256:
         return _set_op_arg(code, offset, _SMALL_INT, value)
+    common_arg = _common_arg(value)
+    if common_arg is not None:
+        assert _COMMON_CONST is not None  # the table is populated only when the opcode exists
+        return _set_op_arg(code, offset, _COMMON_CONST, common_arg)
     # Always append a fresh constant instead of reusing one by `==`: `False == 0`, `True == 1` and `1 == 1.0` in
     # Python, so a lookup could load the wrong object. A redundant entry is harmless.
     index = len(code.co_consts)

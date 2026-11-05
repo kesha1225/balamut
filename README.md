@@ -41,7 +41,7 @@ next: fix_findings_and_rerun
 
 ## Requirements
 
-* Python 3.14 (the bytecode fast path and `sys.monitoring` events it relies on are version specific).
+* Python 3.14+ (the bytecode fast path and `sys.monitoring` events it relies on are version specific).
 * pytest 9.1+ and pytest-fast 0.16 (installed as dependencies).
 * `capability` 1.0+ (installed as a dependency: the operator API is built on its folds and phases).
 * A POSIX system: daemons talk over Unix sockets and are managed as process groups.

@@ -91,6 +91,7 @@ class CampaignOptions:
     mutant_timeout: float = 8.0
     timeout_retries: int = 1
     timeout_retry_multiplier: float = 3.0
+    daemon_ttl: int | None = None  # None: the engine's built-in idle TTL
     progress_mode: ProgressMode = ProgressMode.TTY
     stats_path: Path | None = None
     detailed: bool = False
@@ -662,7 +663,9 @@ def _execute(
         )
         env = dict(os.environ)
         if normal_work:
-            normal_pool = spawn_pool(address_base, daemons, workers, env, overlays, scratch=scratch)
+            normal_pool = spawn_pool(
+                address_base, daemons, workers, env, overlays, scratch=scratch, idle_ttl=options.daemon_ttl
+            )
         startup, runtime = lane(
             normal_work,
             results,
@@ -687,6 +690,7 @@ def _execute(
                 env,
                 overlays[:concurrency_daemons],
                 scratch=scratch,
+                idle_ttl=options.daemon_ttl,
             )
         startup, runtime = lane(
             concurrency_work,

@@ -49,6 +49,7 @@ def test_defaults_without_tool_table(tmp_path: Path) -> None:
     assert profile.base == "origin/main"
     assert profile.isolation.kind is IsolationKind.NONE
     assert profile.mutant_timeout == 8.0
+    assert profile.daemon_ttl is None
 
 
 def test_flat_layout_via_the_config_file(tmp_path: Path) -> None:
@@ -98,6 +99,7 @@ def test_full_profile_round_trip(tmp_path: Path) -> None:
                 substrate_inputs=("pyproject.toml", "conftest.py"),
                 mutant_timeout=12.5,
                 timeout_retries=2,
+                daemon_ttl=90,
                 state_dir=".mut",
                 preflight=(("python", "-c", "pass"),),
                 coverage_concurrency=("thread", "greenlet"),
@@ -130,6 +132,7 @@ def test_full_profile_round_trip(tmp_path: Path) -> None:
     assert profile.env_prefixes == ("APP_",)
     assert profile.mutant_timeout == 12.5
     assert profile.timeout_retries == 2
+    assert profile.daemon_ttl == 90
     assert profile.state_dir == tmp_path.resolve() / ".mut"
     assert profile.preflight == (("python", "-c", "pass"),)
     assert profile.coverage.concurrency == ("thread", "greenlet")
@@ -173,6 +176,14 @@ def test_invalid_pyproject_is_rejected(tmp_path: Path, body: str, fragment: str)
             init(mutant_timeout=-1)
             """,
             "mutant_timeout must be positive",
+        ),
+        (
+            """
+            from balamut.config import init
+
+            init(daemon_ttl=0)
+            """,
+            "daemon_ttl must be positive",
         ),
         (
             """
@@ -409,6 +420,17 @@ def test_validate_allows_positive_mutant_timeout(tmp_path: Path) -> None:
 def test_validate_allows_zero_timeout_retries(tmp_path: Path) -> None:
     profile = replace(default_profile(tmp_path), timeout_retries=0)
     _validate_profile(profile)
+
+
+def test_validate_rejects_nonpositive_daemon_ttl(tmp_path: Path) -> None:
+    profile = replace(default_profile(tmp_path), daemon_ttl=0)
+    with pytest.raises(ProfileError, match="daemon_ttl must be positive"):
+        _validate_profile(profile)
+
+
+def test_validate_allows_positive_or_unset_daemon_ttl(tmp_path: Path) -> None:
+    _validate_profile(default_profile(tmp_path))  # None: the engine's built-in TTL
+    _validate_profile(replace(default_profile(tmp_path), daemon_ttl=90))
 
 
 def test_validate_allows_workers_cap_of_one(tmp_path: Path) -> None:

@@ -39,6 +39,7 @@ of `init`.
 | `diff_kinds` | `kinds` plus `"extreme"` | mutant kinds of `balamut diff` |
 | `schedule_fuzz` | `True` | inject yield points into concurrency mutants so a race has a chance to show |
 | `mutant_timeout` | `8.0` | no-progress timeout of a mutant request, in seconds (raised to twice the slowest covering test) |
+| `daemon_ttl` | `None` (600 s) | seconds a campaign daemon may idle before it exits cleanly; a lane respawns such a daemon instead of failing |
 | `timeout_retries` | `1` | isolated retries of a timed-out mutant, each with a three times longer budget |
 | `env_prefixes` | `()` | prefixes of application environment variables a warm daemon must restart on (shared environments only) |
 | `preflight` | `()` | commands `balamut diff` and `balamut doctor` run first, as argv arrays: `(("make", "db-ready"),)` |

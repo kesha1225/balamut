@@ -248,8 +248,9 @@ def stub_campaign_runtime(
         *,
         scratch: Path,
         persist_workers: bool = True,
+        idle_ttl: int | None = None,
     ) -> list[Daemon]:
-        _ = scratch
+        _ = (scratch, idle_ttl)
         record.lifecycle.append(f"spawn:{address_base}")
         record.spawn_shapes.append((daemons, workers))
         record.spawn_persistence.append(persist_workers)

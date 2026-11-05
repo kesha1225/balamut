@@ -11,6 +11,8 @@ divergence into its store first, so a test written since the last campaign is a 
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import hashlib
 import json
 import os
 import sys
@@ -20,6 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
+from typing import cast
 
 from balamut.cli.exit_codes import EXIT_REFRESH_BASELINE_FAILURE, EXIT_SCOPE_CHANGED, EXIT_USAGE
 from balamut.cli.substrate_cmd import SubstrateBuildFailedError, ensure_substrate
@@ -37,6 +40,8 @@ from balamut.diff.scope import DiffScope, ScopeWatch, read_scope
 from balamut.engine.campaign import CampaignOptions, run_campaign
 from balamut.engine.collection import CollectionError, CollectionKey, build_collection_key, collect_test_nodeids
 from balamut.engine.enumeration import (
+    KindKinds,
+    MutantCache,
     PathsByKind,
     UnknownKindError,
     enumerate_paths,
@@ -123,6 +128,11 @@ def _parser(profile: Profile) -> argparse.ArgumentParser:
         help="inject yield points into concurrency mutants",
     )
     parser.add_argument("--cross-kill", action="store_true", help="run every covering test per mutant (kill matrix)")
+    parser.add_argument(
+        "--persist-pool",
+        action="store_true",
+        help="keep the daemons at a fixed address for the next campaign (skips the spawn and the shutdown)",
+    )
     parser.add_argument("--limit", type=int, default=0, help="cap the number of mutants (smoke runs)")
     parser.add_argument("--kind", default=",".join(profile.kinds), help="comma-separated mutant kinds")
     parser.add_argument("--operator", default="", help="keep only operators with this prefix")
@@ -327,6 +337,32 @@ def _routing(paths: list[str], kinds: list[str], layout: Layout, self_covered_ki
     return {kind: tests if kind in self_covered_kinds else source for kind in kinds}
 
 
+def _enum_cache(profile: Profile, resolved: KindKinds) -> MutantCache:
+    """The content-addressed enumeration cache, keyed by the campaign's kind configuration."""
+    # The facts are frozen dataclasses at runtime, but the kind registry types them as the capability base.
+    canonical = _canonical(cast("Canonical", resolved))
+    config_hash = hashlib.sha256(repr(canonical).encode()).hexdigest()[:16]
+    return MutantCache(profile.state_dir / "tmp" / "enum" / config_hash)
+
+
+type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
+type Canonical = JsonValue | frozenset[Canonical] | tuple[Canonical, ...] | list[Canonical] | dict[str, Canonical]
+
+
+def _canonical(value: Canonical) -> Canonical:
+    """A hash-seed-stable serialization of a resolved kind registry: frozensets and dicts sort, dataclasses
+    recurse through their fields, so two processes always fingerprint the same configuration identically."""
+    if isinstance(value, frozenset):
+        return sorted((_canonical(item) for item in value), key=repr)
+    if isinstance(value, dict):
+        return sorted(((key, _canonical(item)) for key, item in value.items()), key=repr)
+    if isinstance(value, (tuple, list)):
+        return [_canonical(item) for item in value]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return [type(value).__qualname__, _canonical(dataclasses.asdict(value))]
+    return value
+
+
 def main(argv: list[str]) -> int:
     try:
         profile = load_profile(Path.cwd())
@@ -519,6 +555,7 @@ def _run(
         resolved=resolved,
         paths_by_kind=paths_by_kind,
         phase_timings=timings,
+        enum_cache=_enum_cache(profile, resolved),
     )
     if args.diff_mode == "fast" and scope is not None:
         mutants = filter_mutants_by_scope(mutants, scope)
@@ -569,6 +606,7 @@ def _run(
         timeout_retries=args.timeout_retries,
         timeout_retry_multiplier=args.timeout_retry_multiplier,
         daemon_ttl=profile.daemon_ttl,
+        persist_pool=args.persist_pool,
         progress_mode=ProgressMode(args.progress),
         stats_path=stats_path,
         detailed=args.detailed,

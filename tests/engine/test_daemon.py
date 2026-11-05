@@ -54,6 +54,10 @@ def _client(frame: Frame, results: list[daemon.CompactResult] | None = None, cal
     return compact_request
 
 
+def _no_wait_ready(_address: str, _proc: daemon.DaemonProcess, _deadline: float) -> None:
+    return None
+
+
 def test_request_uses_compact_results_and_preserves_exact_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[Frame] = []
     result: daemon.CompactResult = {
@@ -672,7 +676,7 @@ def test_respawn_daemon_kills_waits_and_cleans_sockets(tmp_path: Path, monkeypat
     killed: list[object] = []
     waits: list[float | None] = []
     readied: list[tuple[str, float]] = []
-    spawned: list[tuple[str, Path, int, dict[str, str], IO[bytes], bool]] = []
+    spawned: list[tuple[str, Path, int, dict[str, str], IO[bytes], bool, int]] = []
 
     class Proc(FakeProcess):
         def wait(self, timeout: float | None = None) -> int:
@@ -1135,10 +1139,9 @@ def test_spawn_pool_resolves_and_stores_the_idle_ttl(tmp_path: Path, monkeypatch
 def test_await_pool_respawns_a_cleanly_exited_daemon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     respawned: list[daemon.Daemon] = []
     monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
-    monkeypatch.setattr(daemon, "wait_ready", lambda *_a: None)
+    monkeypatch.setattr(daemon, "wait_ready", _no_wait_ready)
     alive = fake_daemon(tmp_path, address="alive", index=0)
-    idle = fake_daemon(tmp_path, address="idle", index=1)
-    idle.proc.returncode = 0
+    idle = fake_daemon(tmp_path, address="idle", index=1, returncode=0)
 
     daemon.await_pool([alive, idle])
 
@@ -1148,8 +1151,7 @@ def test_await_pool_respawns_a_cleanly_exited_daemon(tmp_path: Path, monkeypatch
 def test_await_pool_raises_on_an_unclean_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     respawned: list[daemon.Daemon] = []
     monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
-    broken = fake_daemon(tmp_path)
-    broken.proc.returncode = 3
+    broken = fake_daemon(tmp_path, returncode=3)
 
     with pytest.raises(RuntimeError, match="died"):
         daemon.await_pool([broken])
@@ -1181,7 +1183,7 @@ def test_respawn_daemon_reuses_the_configured_idle_ttl(tmp_path: Path, monkeypat
         return FakeProcess()
 
     monkeypatch.setattr(daemon, "spawn_daemon", fake_spawn)
-    monkeypatch.setattr(daemon, "wait_ready", lambda *_a: None)
+    monkeypatch.setattr(daemon, "wait_ready", _no_wait_ready)
     target = fake_daemon(tmp_path)
     target.idle_ttl = 90
 

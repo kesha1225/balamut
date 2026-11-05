@@ -14,6 +14,9 @@ class FakeProcess:
     pid = 0
     returncode: int | None = None
 
+    def __init__(self, returncode: int | None = None) -> None:
+        self.returncode = returncode
+
     def poll(self) -> int | None:
         return self.returncode
 
@@ -29,14 +32,20 @@ class FakeProcess:
 
 
 def fake_daemon(
-    tmp_path: Path, *, address: str = "sock", index: int = 0, workers: int = 1, persist_workers: bool = True
+    tmp_path: Path,
+    *,
+    address: str = "sock",
+    index: int = 0,
+    workers: int = 1,
+    persist_workers: bool = True,
+    returncode: int | None = None,
 ) -> Daemon:
     mutant_file = tmp_path / f"mutant-{index}.json"
     mutant_file.write_text("", encoding="utf-8")
     return Daemon(
         address=address,
         mutant_file=mutant_file,
-        proc=FakeProcess(),
+        proc=FakeProcess(returncode),
         log=BytesIO(),
         workers=workers,
         env={},

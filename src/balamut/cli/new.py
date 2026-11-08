@@ -5,7 +5,8 @@ Writes ``[tool.balamut] config = "balamut_conf.py"`` into ``pyproject.toml`` (cr
 repository's live integration branch as the diff base:
 
 - ``src/`` exists -> ``source=("src",)``, ``import_roots=("src",)``;
-- else a directory named after the project -> that directory;
+- else a directory named after the project -> ``source=("<name>",)``, ``import_roots=(".",)``: the directory
+  is the package itself, imported from the project root;
 - else a flat layout -> ``source=(".",)``, ``import_roots=(".",)``.
 
 The diff base is the live ``main``/``master`` branch when the repository has one, else ``origin/main``.
@@ -48,10 +49,15 @@ def _project_name(root: Path) -> str:
 
 
 def _source_layout(root: Path, name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """(source, import_roots) implied by the directory tree."""
-    for candidate in ("src", name):
-        if (root / candidate).is_dir():
-            return (candidate,), (candidate,)
+    """(source, import_roots) implied by the directory tree.
+
+    ``src/`` holds the packages, so it is their import root. A directory named after the project is the package
+    itself: its modules import as ``<name>.mod`` from the project root, and taking the directory as the root would
+    name them ``mod``, which no test imports."""
+    if (root / "src").is_dir():
+        return ("src",), ("src",)
+    if (root / name).is_dir():
+        return (name,), (".",)
     return (".",), (".",)
 
 

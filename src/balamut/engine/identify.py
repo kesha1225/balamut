@@ -79,7 +79,6 @@ def identify(
     mechanism = mutant_mechanism(mutant)
     source_bytes = source.encode("utf-8")
     line_start = source_bytes.rfind(b"\n", 0, mutant.start_byte) + 1
-    end_line_start = source_bytes.rfind(b"\n", 0, mutant.end_byte) + 1
     spec: MutantSpec = {
         "module": module,
         "qualname": qualname,
@@ -89,8 +88,6 @@ def identify(
         "mechanism": mechanism.value,
         "target_lineno": mutant.lineno,
         "target_col": mutant.start_byte - line_start,
-        "target_end_lineno": mutant.site_end_lineno,
-        "target_end_col": mutant.end_byte - end_line_start,
     }
     if mutant.bc is not None:
         bc = bytecode_fields(

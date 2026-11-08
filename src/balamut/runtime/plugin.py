@@ -89,8 +89,6 @@ class MutantSpec(TypedDict):
     request_token: NotRequired[str]  # the unique boundary of a mutant lease
     target_lineno: NotRequired[int]  # site line: selects the exact nested code object for the touch marker
     target_col: NotRequired[int]  # UTF-8 byte column of the site start
-    target_end_lineno: NotRequired[int]
-    target_end_col: NotRequired[int]
     touch_path: NotRequired[str]  # marker of an actual entry into the mutated code object
     deps_path: NotRequired[str]  # where the lease publishes the repository functions it entered
 
@@ -111,8 +109,6 @@ _OPTIONAL_INT_KEYS = (
     "default_index",
     "target_lineno",
     "target_col",
-    "target_end_lineno",
-    "target_end_col",
     "bc_lineno",
     "bc_col",
     "bc_end_col",
@@ -153,48 +149,50 @@ class ApplyOutcome(Enum):
     UNSUPPORTED = "unsupported"  # not applied (resolve / compile / freevars): never reported as survived
 
 
-def _codes_at_site(
-    root: CodeType,
-    lineno: int | None,
-    col: int | None,
-    end_lineno: int | None,
-    end_col: int | None,
-) -> tuple[CodeType, ...]:
-    """The deepest code objects covering the exact site, falling back to the line for an older spec."""
+def _codes_at_site(root: CodeType, lineno: int | None, col: int | None) -> tuple[CodeType, ...]:
+    """The innermost code objects whose own source extent holds the start of the edit; the root when none does.
+
+    Only the start is compared: the positions are those of the mutated code, and the edit may have moved
+    everything after its start. A nested code object that the edit merely contains (a lambda argument of an edited
+    call) does not hold the start, so the marker stays on the scope that runs the edit: armed on the lambda, it
+    would stay silent for a mutant whose call fails before the lambda runs."""
     if lineno is None:
         return (root,)
-    line_matches: list[tuple[int, CodeType]] = []
-    exact_matches: list[tuple[int, CodeType]] = []
+    matches: list[tuple[int, CodeType]] = []
 
     def visit(code: CodeType, depth: int) -> None:
-        positions = tuple(code.co_positions())
-        if any(start is not None and end is not None and start <= lineno <= end for start, end, _, _ in positions):
-            line_matches.append((depth, code))
-        target_end_lineno = end_lineno or lineno
-        if (
-            col is not None
-            and end_col is not None
-            and any(
-                start is not None
-                and end is not None
-                and start_col is not None
-                and position_end_col is not None
-                and (start, start_col) < (target_end_lineno, end_col)
-                and (end, position_end_col) > (lineno, col)
-                for start, end, start_col, position_end_col in positions
-            )
-        ):
-            exact_matches.append((depth, code))
+        if _extent_holds(code, lineno, col):
+            matches.append((depth, code))
         for value in code.co_consts:
             if isinstance(value, CodeType):
                 visit(value, depth + 1)
 
     visit(root, 0)
-    matches = exact_matches or line_matches
     if not matches:
         return (root,)
     deepest = max(depth for depth, _code in matches)
     return tuple(code for depth, code in matches if depth == deepest)
+
+
+def _extent_holds(code: CodeType, lineno: int, col: int | None) -> bool:
+    """Does the source extent of the code object's own instructions hold the point ``(lineno, col)``?
+
+    Zero-width positions are skipped: they mark artificial instructions (``RESUME`` sits at column 0 of the
+    definition line) and cover no source text. Without a column (an older spec, or code compiled without column
+    positions) the lines decide."""
+    lines: list[tuple[int, int]] = []
+    spans: list[tuple[tuple[int, int], tuple[int, int]]] = []
+    for start, end, start_col, end_col in code.co_positions():
+        if start is None or end is None:
+            continue
+        if start_col is None or end_col is None:
+            lines.append((start, end))
+        elif (start, start_col) != (end, end_col):
+            lines.append((start, end))
+            spans.append(((start, start_col), (end, end_col)))
+    if col is not None and spans:
+        return min(first for first, _last in spans) <= (lineno, col) < max(last for _first, last in spans)
+    return bool(lines) and min(first for first, _last in lines) <= lineno <= max(last for _first, last in lines)
 
 
 def _arm_touch_marker(codes: tuple[CodeType, ...], path: str | None) -> Callable[[], None]:
@@ -294,13 +292,7 @@ def apply_mutation_reversible(module: ModuleType, spec: MutantSpec) -> tuple[App
     except ValueError:  # freevars/cellvars mismatch: the body changed its closure
         return ApplyOutcome.UNSUPPORTED, None
     touch_restore = _arm_touch_marker(
-        _codes_at_site(
-            new_code,
-            spec.get("target_lineno"),
-            spec.get("target_col"),
-            spec.get("target_end_lineno"),
-            spec.get("target_end_col"),
-        ),
+        _codes_at_site(new_code, spec.get("target_lineno"), spec.get("target_col")),
         spec.get("touch_path"),
     )
 

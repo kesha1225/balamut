@@ -19,7 +19,7 @@ import pytest
 from balamut.core.mutants import Mutant
 from balamut.coverage.store import Store
 from balamut.engine import campaign, partition, timeouts
-from balamut.engine.daemon import Daemon, RunResult
+from balamut.engine.daemon import PRELOAD_REWRITE_WARNING_FILTER, Daemon, RunResult
 from balamut.engine.progress import CampaignProgress, ProgressMode
 from balamut.engine.results import CampaignExactnessError, CampaignSetupError, MutantResult, MutantStatus
 from balamut.engine.worker import Timing
@@ -812,7 +812,10 @@ def test_daemons_collect_only_covering_test_files_with_matching_client_fingerpri
 
     run(tmp_path, [item])
 
-    expected = "-p balamut.runtime.plugin -o faulthandler_timeout=8 tests/a_test.py tests/b/b_test.py"
+    expected = (
+        f"-p balamut.runtime.plugin {PRELOAD_REWRITE_WARNING_FILTER} "
+        "-o faulthandler_timeout=8 tests/a_test.py tests/b/b_test.py"
+    )
     assert seen == [(expected, expected)]
     assert os.environ["PYTEST_ADDOPTS"] == "-p balamut.runtime.plugin"
 

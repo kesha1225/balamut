@@ -206,6 +206,29 @@ $ balamut mutate src --html report.html --html-baseline report.html
 
 ![The HTML report after three runs: score, verdicts, every mutant and the progress since the baseline](docs/images/html-report-summary.png)
 
+## Benchmark
+
+[PyMutBench](docs/benchmark.md) compares eleven open-source Python mutation tools on 325 validated historical
+bugs from 26 projects (CPython 3.14). For each bug it asks whether a tool generates a mutant that the project's
+tests missed and the bug's own regression test kills: a mutant that asks for the test the bug needed. It also
+checks every tool's own verdicts against an independent oracle and times each tool's own campaign.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/bench-detection.dark.svg">
+  <img alt="Share of real bugs with a coupling witness, per tool, with 95% intervals" src="docs/images/bench-detection.light.svg">
+</picture>
+
+The tools witness 25% to 62% of the bugs. balamut's default source kinds witness 40%, ninth of eleven; the
+paired intervals of its differences from deployproof, mutmut, cosmic-ray, irradiate and fest contain zero. With
+the extreme kind, which `balamut diff` adds on changed code, it witnesses 50%. At fixed budgets the tools are
+closer: up to ten random mutants of a tool contain a witness with probability 20% to 30% (balamut 23%). In each
+tool's own campaign on six projects, balamut's engine agrees with the oracle on all 1,567 comparable verdicts, as
+do cosmic-ray, universalmutator and pytest-gremlins on theirs, while the oracle kills up to 92% (fest) of the
+survivors other engines report; balamut gave no verdicts on one of the six projects.
+
+The benchmark is maintained by balamut's authors; the protocol, every judged mutant and the scripts behind every
+number are in [`bench/`](bench), and any tool's maintainers can correct its adapter or configuration.
+
 ## How it works
 
 See [docs/how-it-works.md](docs/how-it-works.md) for the engine, the verdict rules, the substrate and its refresh,

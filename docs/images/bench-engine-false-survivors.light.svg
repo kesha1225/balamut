@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="458" viewBox="0 0 760 458" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-label="Survivors the reference oracle kills">
+<title>Survivors the reference oracle kills</title>
+<rect width="760" height="458" fill="#fcfcfb" rx="8"/>
+<text x="24.0" y="28.0" fill="#0b0b0b" font-size="15" font-weight="600" text-anchor="start" dominant-baseline="middle">Survivors the reference oracle kills</text>
+<text x="24.0" y="48.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">share of the tool&#x27;s &#x27;survived&#x27; verdicts the reference oracle kills, among comparable verdicts</text>
+<text x="24.0" y="64.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">6 projects at HEAD</text>
+<g transform="translate(0,16)">
+<line x1="168.0" y1="64" x2="168.0" y2="402" stroke="#e1e0d9" stroke-width="1"/>
+<text x="168.0" y="418.0" fill="#898781" font-size="11" font-weight="400" text-anchor="middle" dominant-baseline="middle">0%</text>
+<line x1="286.0" y1="64" x2="286.0" y2="402" stroke="#e1e0d9" stroke-width="1"/>
+<text x="286.0" y="418.0" fill="#898781" font-size="11" font-weight="400" text-anchor="middle" dominant-baseline="middle">25%</text>
+<line x1="404.0" y1="64" x2="404.0" y2="402" stroke="#e1e0d9" stroke-width="1"/>
+<text x="404.0" y="418.0" fill="#898781" font-size="11" font-weight="400" text-anchor="middle" dominant-baseline="middle">50%</text>
+<line x1="522.0" y1="64" x2="522.0" y2="402" stroke="#e1e0d9" stroke-width="1"/>
+<text x="522.0" y="418.0" fill="#898781" font-size="11" font-weight="400" text-anchor="middle" dominant-baseline="middle">75%</text>
+<line x1="640.0" y1="64" x2="640.0" y2="402" stroke="#e1e0d9" stroke-width="1"/>
+<text x="640.0" y="418.0" fill="#898781" font-size="11" font-weight="400" text-anchor="middle" dominant-baseline="middle">100%</text>
+<line x1="168" y1="64" x2="168" y2="402" stroke="#c3c2b7" stroke-width="1"/>
+<text x="156.0" y="87.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">fest</text>
+<path d="M168.00,80.00 H597.23 Q601.23,80.00 601.23,84.00 V90.00 Q601.23,94.00 597.23,94.00 H168.00 Z" fill="#a8a69e"><title>fest: 92%</title></path>
+<text x="609.2" y="87.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">92%</text>
+<text x="156.0" y="117.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">pytest-leela</text>
+<path d="M168.00,110.00 H561.70 Q565.70,110.00 565.70,114.00 V120.00 Q565.70,124.00 561.70,124.00 H168.00 Z" fill="#a8a69e"><title>pytest-leela: 84%</title></path>
+<text x="573.7" y="117.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">84%</text>
+<text x="156.0" y="147.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">mutation</text>
+<path d="M168.00,140.00 H556.65 Q560.65,140.00 560.65,144.00 V150.00 Q560.65,154.00 556.65,154.00 H168.00 Z" fill="#a8a69e"><title>mutation: 83%</title></path>
+<text x="568.6" y="147.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">83%</text>
+<text x="156.0" y="177.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">irradiate</text>
+<path d="M168.00,170.00 H398.73 Q402.73,170.00 402.73,174.00 V180.00 Q402.73,184.00 398.73,184.00 H168.00 Z" fill="#a8a69e"><title>irradiate: 50%</title></path>
+<text x="410.7" y="177.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">50%</text>
+<text x="156.0" y="207.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">deployproof</text>
+<path d="M168.00,200.00 H324.74 Q328.74,200.00 328.74,204.00 V210.00 Q328.74,214.00 324.74,214.00 H168.00 Z" fill="#a8a69e"><title>deployproof: 34%</title></path>
+<text x="336.7" y="207.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">34%</text>
+<text x="156.0" y="237.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">mutmut</text>
+<path d="M168.00,230.00 H191.93 Q195.93,230.00 195.93,234.00 V240.00 Q195.93,244.00 191.93,244.00 H168.00 Z" fill="#a8a69e"><title>mutmut: 6%</title></path>
+<text x="203.9" y="237.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">6%</text>
+<text x="156.0" y="267.0" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="end" dominant-baseline="middle">balamut</text>
+
+<text x="176.0" y="267.0" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="start" dominant-baseline="middle">0%</text>
+<text x="156.0" y="297.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">cosmic-ray</text>
+
+<text x="176.0" y="297.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">0%</text>
+<text x="156.0" y="327.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">poodle</text>
+
+<text x="176.0" y="327.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">0%</text>
+<text x="156.0" y="357.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">pytest-gremlins</text>
+
+<text x="176.0" y="357.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">0%</text>
+<text x="156.0" y="387.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">universalmutator</text>
+
+<text x="176.0" y="387.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">0%</text>
+</g>
+</svg>

@@ -1,0 +1,21 @@
+{
+ "B-C": {
+  "n": 526,
+  "agreement": 0.911,
+  "kappa": 0.771
+ },
+ "GPT-B": {
+  "n": 85,
+  "agreement": 0.941,
+  "kappa": 0.873
+ },
+ "GPT-C": {
+  "n": 85,
+  "agreement": 0.953,
+  "kappa": 0.895
+ },
+ "fault_class_B-C": {
+  "n": 364,
+  "same_class": 244
+ }
+}

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="442" viewBox="0 0 760 442" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-label="Wall time of the tool&#x27;s own campaign">
+<title>Wall time of the tool&#x27;s own campaign</title>
+<rect width="760" height="442" fill="#fcfcfb" rx="8"/>
+<text x="24.0" y="28.0" fill="#0b0b0b" font-size="15" font-weight="600" text-anchor="start" dominant-baseline="middle">Wall time of the tool&#x27;s own campaign</text>
+<text x="24.0" y="48.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">sum over the projects every campaign ran on (cachetools), first run, 4 vCPUs · lower is faster</text>
+<line x1="168.0" y1="64" x2="168.0" y2="402" stroke="#e1e0d9" stroke-width="1"/>
+<text x="168.0" y="418.0" fill="#898781" font-size="11" font-weight="400" text-anchor="middle" dominant-baseline="middle">0 s</text>
+<line x1="325.3" y1="64" x2="325.3" y2="402" stroke="#e1e0d9" stroke-width="1"/>
+<text x="325.3" y="418.0" fill="#898781" font-size="11" font-weight="400" text-anchor="middle" dominant-baseline="middle">500 s</text>
+<line x1="482.7" y1="64" x2="482.7" y2="402" stroke="#e1e0d9" stroke-width="1"/>
+<text x="482.7" y="418.0" fill="#898781" font-size="11" font-weight="400" text-anchor="middle" dominant-baseline="middle">1,000 s</text>
+<line x1="640.0" y1="64" x2="640.0" y2="402" stroke="#e1e0d9" stroke-width="1"/>
+<text x="640.0" y="418.0" fill="#898781" font-size="11" font-weight="400" text-anchor="middle" dominant-baseline="middle">1,500 s</text>
+<line x1="168" y1="64" x2="168" y2="402" stroke="#c3c2b7" stroke-width="1"/>
+<text x="156.0" y="87.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">fest</text>
+<path d="M168.00,80.00 H168.00 Q169.11,80.00 169.11,81.11 V92.89 Q169.11,94.00 168.00,94.00 H168.00 Z" fill="#a8a69e"><title>fest: 3.53 s</title></path>
+<text x="177.1" y="87.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">3.53 s</text>
+<text x="156.0" y="117.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">mutmut</text>
+<path d="M168.00,110.00 H168.00 Q170.98,110.00 170.98,112.98 V121.02 Q170.98,124.00 168.00,124.00 H168.00 Z" fill="#a8a69e"><title>mutmut: 9.47 s</title></path>
+<text x="179.0" y="117.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">9.47 s</text>
+<text x="156.0" y="147.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">pytest-leela</text>
+<path d="M168.00,140.00 H168.00 Q171.91,140.00 171.91,143.91 V150.09 Q171.91,154.00 168.00,154.00 H168.00 Z" fill="#a8a69e"><title>pytest-leela: 12.4 s</title></path>
+<text x="179.9" y="147.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">12.4 s</text>
+<text x="156.0" y="177.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">irradiate</text>
+<path d="M168.00,170.00 H176.39 Q180.39,170.00 180.39,174.00 V180.00 Q180.39,184.00 176.39,184.00 H168.00 Z" fill="#a8a69e"><title>irradiate: 39.4 s</title></path>
+<text x="188.4" y="177.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">39.4 s</text>
+<text x="156.0" y="207.0" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="end" dominant-baseline="middle">balamut</text>
+<path d="M168.00,200.00 H199.34 Q203.34,200.00 203.34,204.00 V210.00 Q203.34,214.00 199.34,214.00 H168.00 Z" fill="#2a78d6"><title>balamut: 112 s</title></path>
+<text x="211.3" y="207.0" fill="#0b0b0b" font-size="12" font-weight="600" text-anchor="start" dominant-baseline="middle">112 s</text>
+<text x="156.0" y="237.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">deployproof</text>
+<path d="M168.00,230.00 H206.04 Q210.04,230.00 210.04,234.00 V240.00 Q210.04,244.00 206.04,244.00 H168.00 Z" fill="#a8a69e"><title>deployproof: 134 s</title></path>
+<text x="218.0" y="237.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">134 s</text>
+<text x="156.0" y="267.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">poodle</text>
+<path d="M168.00,260.00 H211.50 Q215.50,260.00 215.50,264.00 V270.00 Q215.50,274.00 211.50,274.00 H168.00 Z" fill="#a8a69e"><title>poodle: 151 s</title></path>
+<text x="223.5" y="267.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">151 s</text>
+<text x="156.0" y="297.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">pytest-gremlins</text>
+<path d="M168.00,290.00 H215.78 Q219.78,290.00 219.78,294.00 V300.00 Q219.78,304.00 215.78,304.00 H168.00 Z" fill="#a8a69e"><title>pytest-gremlins: 165 s</title></path>
+<text x="227.8" y="297.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">165 s</text>
+<text x="156.0" y="327.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">mutation</text>
+<path d="M168.00,320.00 H355.28 Q359.28,320.00 359.28,324.00 V330.00 Q359.28,334.00 355.28,334.00 H168.00 Z" fill="#a8a69e"><title>mutation: 608 s</title></path>
+<text x="367.3" y="327.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">608 s</text>
+<text x="156.0" y="357.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">cosmic-ray</text>
+<path d="M168.00,350.00 H366.22 Q370.22,350.00 370.22,354.00 V360.00 Q370.22,364.00 366.22,364.00 H168.00 Z" fill="#a8a69e"><title>cosmic-ray: 643 s</title></path>
+<text x="378.2" y="357.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">643 s</text>
+<text x="156.0" y="387.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">universalmutator</text>
+<path d="M168.00,380.00 H577.39 Q581.39,380.00 581.39,384.00 V390.00 Q581.39,394.00 577.39,394.00 H168.00 Z" fill="#a8a69e"><title>universalmutator: 1,314 s</title></path>
+<text x="589.4" y="387.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">1,314 s</text>
+</svg>

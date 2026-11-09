@@ -67,6 +67,16 @@ def _one(rows: list[Row], *, line: int, original: str, mutated: str) -> Row:
     return matches[0]
 
 
+def test_a_real_campaign_runs_a_project_that_errors_on_warnings(tmp_path: Path) -> None:
+    root = make_project(tmp_path / "proj", pytest_ini='filterwarnings = ["error"]')
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+    rows = _rows(_mutate(root, None))
+
+    assert _one(rows, line=3, original="return low", mutated="return None")["status"] == "killed"
+    assert "unsupported" not in {str(row["status"]) for row in rows}
+
+
 def test_a_real_campaign_kills_survives_and_reuses_its_cache(tmp_path: Path) -> None:
     root = make_project(tmp_path / "proj")
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)

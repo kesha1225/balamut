@@ -30,6 +30,7 @@ from balamut.core.mutants import Mutant
 from balamut.coverage import substrate
 from balamut.coverage.costs import CostMap, read_costs
 from balamut.coverage.coverage_map import CoverageMap, load_coverage_map
+from balamut.engine.partition import covering_tests
 from balamut.operators.src import enumerate_mutants
 from balamut.paths import substrate_path
 
@@ -110,7 +111,7 @@ def _covered(paths: list[str], layout: Layout, cov: CoverageMap) -> tuple[int, B
     union: set[str] = set()
     for mutant in _walk_mutants(paths, layout):
         total += 1
-        tests = cov.tests_covering(mutant.path, mutant.lineno)
+        tests = covering_tests(cov, mutant)
         if tests:
             by_file.setdefault(mutant.path, []).append(tuple(sorted(tests)))
             union |= tests

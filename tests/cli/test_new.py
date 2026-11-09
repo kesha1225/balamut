@@ -51,8 +51,8 @@ def test_new_flat_layout_picks_master(tmp_path: Path) -> None:
     assert load_profile(tmp_path).base == "master"
 
 
-def test_new_name_dir_layout(tmp_path: Path) -> None:
-    (tmp_path / "demo").mkdir()
+def test_new_name_dir_layout_imports_the_package_from_the_project_root(tmp_path: Path) -> None:
+    write_file(tmp_path / "demo/__init__.py", "")
     write_file(tmp_path / "pyproject.toml", '[project]\nname = "demo"\nversion = "0.1.0"\n')
     _git(tmp_path, "init", "-q", "-b", "main")
 
@@ -60,7 +60,11 @@ def test_new_name_dir_layout(tmp_path: Path) -> None:
 
     conf = (tmp_path / "balamut_conf.py").read_text(encoding="utf-8")
     assert 'source=("demo",)' in conf
-    assert 'import_roots=("demo",)' in conf
+    assert 'import_roots=(".",)' in conf
+    layout = load_profile(tmp_path).layout
+    assert layout.module_name("demo/utils.py") == "demo.utils"
+    assert layout.module_name("demo/filters/others.py") == "demo.filters.others"
+    assert layout.module_name("demo/__init__.py") == "demo"
 
 
 def test_new_creates_a_missing_pyproject(tmp_path: Path) -> None:

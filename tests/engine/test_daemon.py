@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import shlex
 import threading
 from collections.abc import Callable
 from collections.abc import Set as AbstractSet
@@ -432,7 +433,10 @@ def test_campaign_addopts_collect_only_covering_files_and_dump_hung_stacks() -> 
 
     addopts = daemon.campaign_addopts("-p balamut.runtime.plugin", covering, hang_dump_after=7.2)
 
-    assert addopts == "-p balamut.runtime.plugin -o faulthandler_timeout=8 tests/a_test.py tests/b/b_test.py"
+    assert addopts == (
+        f"-p balamut.runtime.plugin {daemon.PRELOAD_REWRITE_WARNING_FILTER} "
+        "-o faulthandler_timeout=8 tests/a_test.py tests/b/b_test.py"
+    )
 
 
 def test_campaign_addopts_keep_full_collection_above_the_file_limit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -440,7 +444,15 @@ def test_campaign_addopts_keep_full_collection_above_the_file_limit(monkeypatch:
 
     addopts = daemon.campaign_addopts("", ("tests/a_test.py::test_a", "tests/b_test.py::test_b"), hang_dump_after=8.0)
 
-    assert addopts == "-o faulthandler_timeout=8"
+    assert addopts == f"{daemon.PRELOAD_REWRITE_WARNING_FILTER} -o faulthandler_timeout=8"
+
+
+def test_rewrite_warning_filter_reaches_pytest_as_one_exact_filter() -> None:
+    # PYTEST_ADDOPTS is split with shlex: the message, spaces and all, must stay one -W value.
+    assert shlex.split(daemon.rewrite_warning_filter("pytest_fast")) == [
+        "-W",
+        "ignore:Module already imported so cannot be rewritten; pytest_fast:pytest.PytestAssertRewriteWarning",
+    ]
 
 
 def test_respawned_daemon_gets_a_fresh_address_and_an_empty_mutant_file(
@@ -606,7 +618,7 @@ def test_campaign_addopts_includes_files_at_the_limit(monkeypatch: pytest.Monkey
 
     addopts = daemon.campaign_addopts("", ("a_test.py::test_a", "b_test.py::test_b"), hang_dump_after=8.0)
 
-    assert addopts == "-o faulthandler_timeout=8 a_test.py b_test.py"
+    assert addopts == f"{daemon.PRELOAD_REWRITE_WARNING_FILTER} -o faulthandler_timeout=8 a_test.py b_test.py"
 
 
 # ---------------------------------------------------------------------------

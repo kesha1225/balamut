@@ -11,6 +11,7 @@ import pytest
 from balamut.core.hashing import mutant_key, sha
 from balamut.core.mutants import Mutant
 from balamut.core.triage import Bucket
+from balamut.coverage.coverage_map import CoverageMap
 from balamut.coverage.store import Store
 from balamut.diff.scope import ScopeWatch
 from balamut.engine import campaign, partition, stats, worker
@@ -876,6 +877,63 @@ def test_partition_passes_path_then_lineno_to_coverage(tmp_path: Path, monkeypat
         store.close()
     assert seen == [(item.path, item.lineno)]
     assert len(items) == 1
+
+
+_NOT_PAREN_SOURCE = (
+    "def next_version(part, prerelease):\n"
+    "    if not (\n"
+    '        part in ("major", "minor")\n'
+    "        and prerelease is None\n"
+    "    ):\n"
+    "        return 1\n"
+    "    return 2\n"
+)
+
+
+def _not_removal(path: str) -> Mutant:
+    return next(m for m in enumerate_mutants(path, _NOT_PAREN_SOURCE) if m.operator == "lang:unary:not-removal")
+
+
+def test_covering_tests_reads_every_line_of_a_multiline_edit() -> None:
+    # CPython 3.14 compiles no instruction for the ``if not (`` line: its coverage is always empty.
+    item = _not_removal("src/x.py")
+    assert (item.lineno, item.site_end_lineno) == (2, 5)
+    coverage = CoverageMap({"src/x.py": {3: frozenset({"tests/x_test.py::a"}), 4: frozenset({"tests/x_test.py::b"})}})
+
+    assert partition.covering_tests(coverage, item) == {"tests/x_test.py::a", "tests/x_test.py::b"}
+
+
+def test_covering_tests_selects_a_default_argument_mutant_by_its_body_line() -> None:
+    source = "def f(\n    x=1,\n):\n    return x\n"
+    item = next(m for m in enumerate_mutants("src/x.py", source) if m.default_index is not None)
+    assert (item.site_lineno, item.lineno) == (2, 4)
+    lines = {2: frozenset({"tests/x_test.py::importer"}), 4: frozenset({"tests/x_test.py::caller"})}
+
+    assert partition.covering_tests(CoverageMap({"src/x.py": lines}), item) == {"tests/x_test.py::caller"}
+
+
+def test_partition_runs_a_multiline_edit_whose_first_line_has_no_coverage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_file(tmp_path / "src/x.py", _NOT_PAREN_SOURCE)
+    write_file(tmp_path / "tests/x_test.py", "def test_x():\n    assert True\n")
+    monkeypatch.setattr(partition, "support_corpus_hash", fixed_support_hash)
+    item = _not_removal("src/x.py")
+    coverage = CoverageMap({"src/x.py": {3: frozenset({"tests/x_test.py::test_x"})}})
+
+    items, prefilled, _hits = partition.partition(
+        [item],
+        {item.path: _NOT_PAREN_SOURCE},
+        coverage,
+        layout=make_layout(tmp_path),
+        store=None,
+        read_cache=False,
+        memo={},
+        reexport={},
+    )
+
+    assert prefilled == {}
+    assert [work_item.covering for work_item in items] == [("tests/x_test.py::test_x",)]
 
 
 def test_work_carries_func_hash_and_qualname(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -210,8 +210,7 @@ def test_apply_mutation_marks_exact_nested_code_when_it_executes(tmp_path: Path)
 def test_apply_mutation_marks_outer_site_on_line_shared_with_lambda(tmp_path: Path) -> None:
     source = "def outer(value):\n    return (lambda: 1, value + 1)\n"
     mutated_source = "def outer(value):\n    return (lambda: 1, value - 1)\n"
-    target = b"value + 1"
-    target_col = source.splitlines()[1].encode("utf-8").index(target)
+    target_col = source.splitlines()[1].encode("utf-8").index(b"value + 1")
     module = _module("m_touch_shared_line", source)
     marker = tmp_path / "touched"
     outcome, restore = apply_mutation_reversible(
@@ -223,7 +222,6 @@ def test_apply_mutation_marks_outer_site_on_line_shared_with_lambda(tmp_path: Pa
             "mutated_source": mutated_source,
             "target_lineno": 2,
             "target_col": target_col,
-            "target_end_col": target_col + len(target),
             "touch_path": str(marker),
         },
     )
@@ -233,6 +231,64 @@ def test_apply_mutation_marks_outer_site_on_line_shared_with_lambda(tmp_path: Pa
     assert outer is not None
     _unused_lambda, result = outer(5)
     assert result == 4
+    assert marker.read_text(encoding="utf-8") == "1"
+    restore()
+
+
+def test_apply_mutation_marks_an_edit_spanning_a_lambda_when_the_call_fails_first(tmp_path: Path) -> None:
+    # Swapped arguments: the call raises before the lambda it contains ever runs, yet the mutated code did run.
+    source = "def outer(parts):\n    return list(filter(lambda p: p is not None, parts))\n"
+    mutated_source = "def outer(parts):\n    return list(filter(parts, lambda p: p is not None))\n"
+    target_col = source.splitlines()[1].encode("utf-8").index(b"filter(")
+    module = _module("m_touch_spanning", source)
+    marker = tmp_path / "touched"
+    outcome, restore = apply_mutation_reversible(
+        module,
+        {
+            "module": "m_touch_spanning",
+            "qualname": "outer",
+            "kind": "src",
+            "mutated_source": mutated_source,
+            "target_lineno": 2,
+            "target_col": target_col,
+            "touch_path": str(marker),
+        },
+    )
+    assert outcome is ApplyOutcome.APPLIED
+    assert restore is not None
+    outer = resolve_function(module, "outer")
+    assert outer is not None
+    with pytest.raises(TypeError):
+        outer([1, None])
+    assert marker.read_text(encoding="utf-8") == "1"
+    restore()
+
+
+def test_apply_mutation_marks_an_edit_inside_a_lambda_only_when_the_lambda_runs(tmp_path: Path) -> None:
+    source = "def outer(parts):\n    return list(filter(lambda p: p is not None, parts))\n"
+    mutated_source = "def outer(parts):\n    return list(filter(lambda p: p is None, parts))\n"
+    target_col = source.splitlines()[1].encode("utf-8").index(b"p is not None")
+    module = _module("m_touch_in_lambda", source)
+    marker = tmp_path / "touched"
+    outcome, restore = apply_mutation_reversible(
+        module,
+        {
+            "module": "m_touch_in_lambda",
+            "qualname": "outer",
+            "kind": "src",
+            "mutated_source": mutated_source,
+            "target_lineno": 2,
+            "target_col": target_col,
+            "touch_path": str(marker),
+        },
+    )
+    assert outcome is ApplyOutcome.APPLIED
+    assert restore is not None
+    outer = resolve_function(module, "outer")
+    assert outer is not None
+    assert outer([]) == []
+    assert not marker.exists()  # the outer body ran, the mutated lambda body did not
+    assert outer([1, None]) == [None]
     assert marker.read_text(encoding="utf-8") == "1"
     restore()
 
@@ -351,7 +407,7 @@ def test_codes_at_site_falls_back_to_root_when_no_line() -> None:
         return 0
 
     code = f.__code__
-    assert plugin._codes_at_site(code, None, None, None, None) == (code,)
+    assert plugin._codes_at_site(code, None, None) == (code,)
 
 
 def test_codes_at_site_falls_back_to_root_when_no_match() -> None:
@@ -359,7 +415,46 @@ def test_codes_at_site_falls_back_to_root_when_no_match() -> None:
         return 0
 
     code = f.__code__
-    assert plugin._codes_at_site(code, 999, None, None, None) == (code,)
+    assert plugin._codes_at_site(code, 999, None) == (code,)
+
+
+def _outer_code(source: str) -> types.CodeType:
+    return next(const for const in compile(source, "t.py", "exec").co_consts if isinstance(const, types.CodeType))
+
+
+def test_codes_at_site_keeps_an_edit_spanning_a_lambda_on_the_enclosing_function() -> None:
+    source = "def outer(parts):\n    return list(filter(parts, lambda p: p is not None))\n"
+    code = _outer_code(source)
+
+    picked = plugin._codes_at_site(code, 2, source.splitlines()[1].index("filter("))
+
+    assert [c.co_qualname for c in picked] == ["outer"]
+
+
+def test_codes_at_site_picks_the_lambda_holding_the_edit_start() -> None:
+    source = "def outer(parts):\n    return list(filter(lambda p: p is not None, parts))\n"
+    code = _outer_code(source)
+
+    picked = plugin._codes_at_site(code, 2, source.splitlines()[1].index("p is not None"))
+
+    assert [c.co_qualname for c in picked] == ["outer.<locals>.<lambda>"]
+
+
+def test_codes_at_site_leaves_the_decorator_line_of_a_nested_function_to_the_outer_scope() -> None:
+    # The nested code object's RESUME sits at column 0 of its first line: a zero-width position, not its source.
+    source = "def outer(deco):\n    @deco\n    def inner():\n        return 1\n    return inner\n"
+    code = _outer_code(source)
+
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 2, 5)] == ["outer"]
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 4, 15)] == ["outer.<locals>.inner"]
+
+
+def test_codes_at_site_without_a_column_matches_by_line() -> None:
+    source = "def outer():\n    def inner():\n        return 1\n    return inner\n"
+    code = _outer_code(source)
+
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 3, None)] == ["outer.<locals>.inner"]
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 4, None)] == ["outer"]
 
 
 def test_arm_touch_marker_noop_without_path() -> None:

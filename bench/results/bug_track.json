@@ -1,0 +1,1562 @@
+{
+ "bugs": 325,
+ "projects": {
+  "arrow": 14,
+  "attrs": 15,
+  "boltons": 15,
+  "cachetools": 9,
+  "cattrs": 15,
+  "click": 15,
+  "humanize": 12,
+  "inflect": 15,
+  "jinja2": 7,
+  "marshmallow": 15,
+  "mistune": 15,
+  "more-itertools": 15,
+  "packaging": 15,
+  "parse": 14,
+  "portion": 4,
+  "pyflakes": 7,
+  "pyparsing": 15,
+  "python-dotenv": 12,
+  "python-pathspec": 11,
+  "python-semver": 13,
+  "python-tabulate": 14,
+  "pyupgrade": 11,
+  "rich": 15,
+  "sqlparse": 15,
+  "tomlkit": 15,
+  "toolz": 2
+ },
+ "tools": {
+  "balamut": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 131,
+   "rate": 0.40307692307692305,
+   "rate_ci": [
+    0.33125,
+    0.48
+   ],
+   "rate_project_mean": 0.406205546590162,
+   "rate_leave_one_project_out": [
+    0.38064516129032255,
+    0.4161290322580645
+   ],
+   "rate_without_arrow": 0.40836012861736337,
+   "rate_conditional": 0.40307692307692305,
+   "rate_conditional_ci": [
+    0.33125,
+    0.48
+   ],
+   "r": {
+    "1": 0.0661487156244784,
+    "5": 0.16985692375530517,
+    "10": 0.23158634160848635,
+    "25": 0.31890769105908234,
+    "50": 0.36780126291751436,
+    "100": 0.39205918236560194
+   },
+   "r10_ci": [
+    0.17702205498037699,
+    0.2913564542297689
+   ],
+   "s": {
+    "1": 0.18035891027777814,
+    "3": 0.2978409285009364,
+    "5": 0.33976488317637243,
+    "10": 0.3785836194264607
+   },
+   "s3_ci": [
+    0.24135645885318846,
+    0.35813910182988046
+   ],
+   "emitted": 20795,
+   "unique": 20522,
+   "status": {
+    "survived": 3098,
+    "killed": 17406,
+    "unresolved": 16,
+    "invalid": 2
+   },
+   "witness_mutants": 531,
+   "witness_flow": {
+    "first_witnesses": 559,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 1,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 27,
+    "witnesses": 531
+   },
+   "unconfirmed_witnesses": 1,
+   "undecided_mutants": 16,
+   "undecided_bugs": 6,
+   "survivors_per_bug_median": 3.0,
+   "emitted_per_bug_median": 25.0,
+   "exact_fault": 3,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 0,
+   "covered_fault_rate": 0.22972972972972974,
+   "gap_fault_rate": 0.8247422680412371,
+   "unrun_fault_rate": 0.0,
+   "by_region": {
+    "function": 0.40454545454545454,
+    "statement": 0.13157894736842105,
+    "mixed": 0.5522388059701493
+   },
+   "rate_optimistic": 0.42153846153846153,
+   "rate_any_fix_test": 0.4123076923076923
+  },
+  "mutmut": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 142,
+   "rate": 0.4369230769230769,
+   "rate_ci": [
+    0.3525641025641026,
+    0.5273311897106109
+   ],
+   "rate_project_mean": 0.4462923828308444,
+   "rate_leave_one_project_out": [
+    0.4129032258064516,
+    0.4533762057877814
+   ],
+   "rate_without_arrow": 0.4533762057877814,
+   "rate_conditional": 0.4369230769230769,
+   "rate_conditional_ci": [
+    0.3525641025641026,
+    0.5273311897106109
+   ],
+   "r": {
+    "1": 0.0595018008041621,
+    "5": 0.16448158536270635,
+    "10": 0.22137908238640916,
+    "25": 0.30824170830351855,
+    "50": 0.36571466118612134,
+    "100": 0.4049275094144012
+   },
+   "r10_ci": [
+    0.16929701339000885,
+    0.2789185115475537
+   ],
+   "s": {
+    "1": 0.16094711244382642,
+    "3": 0.2705424350896852,
+    "5": 0.31854825143949966,
+    "10": 0.3744545709303903
+   },
+   "s3_ci": [
+    0.21375876479744915,
+    0.331140611990163
+   ],
+   "emitted": 30363,
+   "unique": 30353,
+   "status": {
+    "survived": 6037,
+    "killed": 24272,
+    "unresolved": 32,
+    "equivalent_tce": 12
+   },
+   "witness_mutants": 836,
+   "witness_flow": {
+    "first_witnesses": 849,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 1,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 12,
+    "witnesses": 836
+   },
+   "unconfirmed_witnesses": 1,
+   "undecided_mutants": 32,
+   "undecided_bugs": 6,
+   "survivors_per_bug_median": 6.0,
+   "emitted_per_bug_median": 35.0,
+   "exact_fault": 3,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 1,
+   "covered_fault_rate": 0.2972972972972973,
+   "gap_fault_rate": 0.7731958762886598,
+   "unrun_fault_rate": 0.16666666666666666,
+   "by_region": {
+    "function": 0.4636363636363636,
+    "statement": 0.10526315789473684,
+    "mixed": 0.5373134328358209
+   },
+   "rate_optimistic": 0.4553846153846154,
+   "rate_any_fix_test": 0.4430769230769231
+  },
+  "cosmic-ray": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 139,
+   "rate": 0.4276923076923077,
+   "rate_ci": [
+    0.35755813953488375,
+    0.5047923322683706
+   ],
+   "rate_project_mean": 0.4315940469786624,
+   "rate_leave_one_project_out": [
+    0.4064516129032258,
+    0.43870967741935485
+   ],
+   "rate_without_arrow": 0.4340836012861736,
+   "rate_conditional": 0.4276923076923077,
+   "rate_conditional_ci": [
+    0.35755813953488375,
+    0.5047923322683706
+   ],
+   "r": {
+    "1": 0.06810746409722263,
+    "5": 0.16376254079718724,
+    "10": 0.21976845720429733,
+    "25": 0.3003428985090883,
+    "50": 0.3541155885484797,
+    "100": 0.39196815177385663
+   },
+   "r10_ci": [
+    0.16789765939024512,
+    0.27393966612365084
+   ],
+   "s": {
+    "1": 0.1534027291914126,
+    "3": 0.25762088043363246,
+    "5": 0.299549400047683,
+    "10": 0.3525087149511731
+   },
+   "s3_ci": [
+    0.20513916180968653,
+    0.3131957560684758
+   ],
+   "emitted": 36826,
+   "unique": 36825,
+   "status": {
+    "survived": 8230,
+    "killed": 28166,
+    "unresolved": 35,
+    "invalid": 372,
+    "equivalent_tce": 22
+   },
+   "witness_mutants": 1207,
+   "witness_flow": {
+    "first_witnesses": 1234,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 9,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 18,
+    "witnesses": 1207
+   },
+   "unconfirmed_witnesses": 9,
+   "undecided_mutants": 37,
+   "undecided_bugs": 7,
+   "survivors_per_bug_median": 8.0,
+   "emitted_per_bug_median": 40.0,
+   "exact_fault": 2,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 1,
+   "covered_fault_rate": 0.26126126126126126,
+   "gap_fault_rate": 0.8247422680412371,
+   "unrun_fault_rate": 0.16666666666666666,
+   "by_region": {
+    "function": 0.44545454545454544,
+    "statement": 0.15789473684210525,
+    "mixed": 0.5223880597014925
+   },
+   "rate_optimistic": 0.4492307692307692,
+   "rate_any_fix_test": 0.4338461538461538
+  },
+  "poodle": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 178,
+   "rate": 0.5476923076923077,
+   "rate_ci": [
+    0.4658753709198813,
+    0.6288659793814433
+   ],
+   "rate_project_mean": 0.5432847067462452,
+   "rate_leave_one_project_out": [
+    0.532258064516129,
+    0.5645161290322581
+   ],
+   "rate_without_arrow": 0.5337620578778135,
+   "rate_conditional": 0.5476923076923077,
+   "rate_conditional_ci": [
+    0.4658753709198813,
+    0.6288659793814433
+   ],
+   "r": {
+    "1": 0.07578982989816963,
+    "5": 0.21879023858484578,
+    "10": 0.3019774730948959,
+    "25": 0.4112297763304988,
+    "50": 0.47296621617032786,
+    "100": 0.5115056309324549
+   },
+   "r10_ci": [
+    0.23615245019316833,
+    0.3719268383625059
+   ],
+   "s": {
+    "1": 0.2014780215420581,
+    "3": 0.3495009792478191,
+    "5": 0.41398947620402343,
+    "10": 0.47599964332123545
+   },
+   "s3_ci": [
+    0.28990169150320433,
+    0.41095002267263686
+   ],
+   "emitted": 29467,
+   "unique": 29046,
+   "status": {
+    "invalid": 989,
+    "killed": 20956,
+    "survived": 7080,
+    "unresolved": 19,
+    "equivalent_tce": 2
+   },
+   "witness_mutants": 981,
+   "witness_flow": {
+    "first_witnesses": 997,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 1,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 15,
+    "witnesses": 981
+   },
+   "unconfirmed_witnesses": 1,
+   "undecided_mutants": 19,
+   "undecided_bugs": 6,
+   "survivors_per_bug_median": 8.0,
+   "emitted_per_bug_median": 38.0,
+   "exact_fault": 2,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 1,
+   "covered_fault_rate": 0.3918918918918919,
+   "gap_fault_rate": 0.9175257731958762,
+   "unrun_fault_rate": 0.3333333333333333,
+   "by_region": {
+    "function": 0.5272727272727272,
+    "statement": 0.47368421052631576,
+    "mixed": 0.6567164179104478
+   },
+   "rate_optimistic": 0.5661538461538461,
+   "rate_any_fix_test": 0.5538461538461539
+  },
+  "pytest-gremlins": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 81,
+   "rate": 0.24923076923076923,
+   "rate_ci": [
+    0.18694362017804153,
+    0.3183183183183183
+   ],
+   "rate_project_mean": 0.2551553147706994,
+   "rate_leave_one_project_out": [
+    0.22580645161290322,
+    0.25806451612903225
+   ],
+   "rate_without_arrow": 0.2540192926045016,
+   "rate_conditional": 0.24923076923076923,
+   "rate_conditional_ci": [
+    0.18694362017804153,
+    0.3183183183183183
+   ],
+   "r": {
+    "1": 0.06644013122134046,
+    "5": 0.1593681715093712,
+    "10": 0.19587060581692362,
+    "25": 0.23232366135066357,
+    "50": 0.24653023919497294,
+    "100": 0.24880600954338067
+   },
+   "r10_ci": [
+    0.14375560105657986,
+    0.25516417709595346
+   ],
+   "s": {
+    "1": 0.1409941012064664,
+    "3": 0.20464468678207817,
+    "5": 0.225974310979627,
+    "10": 0.24149412355454514
+   },
+   "s3_ci": [
+    0.1544226795724126,
+    0.26014032643745544
+   ],
+   "emitted": 6515,
+   "unique": 6513,
+   "status": {
+    "survived": 1305,
+    "killed": 5196,
+    "unresolved": 12
+   },
+   "witness_mutants": 237,
+   "witness_flow": {
+    "first_witnesses": 247,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 0,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 10,
+    "witnesses": 237
+   },
+   "unconfirmed_witnesses": 0,
+   "undecided_mutants": 12,
+   "undecided_bugs": 6,
+   "survivors_per_bug_median": 1.0,
+   "emitted_per_bug_median": 8.0,
+   "exact_fault": 1,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 0,
+   "covered_fault_rate": 0.09009009009009009,
+   "gap_fault_rate": 0.6288659793814433,
+   "unrun_fault_rate": 0.0,
+   "by_region": {
+    "function": 0.25,
+    "statement": 0.10526315789473684,
+    "mixed": 0.3283582089552239
+   },
+   "rate_optimistic": 0.2676923076923077,
+   "rate_any_fix_test": 0.2553846153846154
+  },
+  "pytest-leela": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 93,
+   "rate": 0.28615384615384615,
+   "rate_ci": [
+    0.21818181818181817,
+    0.359375
+   ],
+   "rate_project_mean": 0.28398247052093206,
+   "rate_leave_one_project_out": [
+    0.2645161290322581,
+    0.2967741935483871
+   ],
+   "rate_without_arrow": 0.2861736334405145,
+   "rate_conditional": 0.28615384615384615,
+   "rate_conditional_ci": [
+    0.21818181818181817,
+    0.359375
+   ],
+   "r": {
+    "1": 0.06799851234891234,
+    "5": 0.16627335438069257,
+    "10": 0.21172813922902312,
+    "25": 0.25874560922589107,
+    "50": 0.27977448129670573,
+    "100": 0.28335999444030563
+   },
+   "r10_ci": [
+    0.15759923511722757,
+    0.2701403376279603
+   ],
+   "s": {
+    "1": 0.1608252225883122,
+    "3": 0.23557970937474526,
+    "5": 0.2581919335342942,
+    "10": 0.2753928000839695
+   },
+   "s3_ci": [
+    0.1809466232153148,
+    0.29430553482811317
+   ],
+   "emitted": 7736,
+   "unique": 7552,
+   "status": {
+    "survived": 1105,
+    "killed": 6437,
+    "unresolved": 10
+   },
+   "witness_mutants": 250,
+   "witness_flow": {
+    "first_witnesses": 260,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 1,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 9,
+    "witnesses": 250
+   },
+   "unconfirmed_witnesses": 1,
+   "undecided_mutants": 10,
+   "undecided_bugs": 6,
+   "survivors_per_bug_median": 1.0,
+   "emitted_per_bug_median": 9.0,
+   "exact_fault": 1,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 0,
+   "covered_fault_rate": 0.11711711711711711,
+   "gap_fault_rate": 0.6907216494845361,
+   "unrun_fault_rate": 0.0,
+   "by_region": {
+    "function": 0.2863636363636364,
+    "statement": 0.13157894736842105,
+    "mixed": 0.373134328358209
+   },
+   "rate_optimistic": 0.3046153846153846,
+   "rate_any_fix_test": 0.2923076923076923
+  },
+  "mutation": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 201,
+   "rate": 0.6184615384615385,
+   "rate_ci": [
+    0.5264900662251656,
+    0.707936507936508
+   ],
+   "rate_project_mean": 0.6007784950092643,
+   "rate_leave_one_project_out": [
+    0.603225806451613,
+    0.6387096774193548
+   ],
+   "rate_without_arrow": 0.6045016077170418,
+   "rate_conditional": 0.6184615384615385,
+   "rate_conditional_ci": [
+    0.5264900662251656,
+    0.707936507936508
+   ],
+   "r": {
+    "1": 0.04784481836654212,
+    "5": 0.14506445319773642,
+    "10": 0.21550672801253384,
+    "25": 0.32909121980799333,
+    "50": 0.4146779831112276,
+    "100": 0.49841802549235903
+   },
+   "r10_ci": [
+    0.15754817352359066,
+    0.283454238515177
+   ],
+   "s": {
+    "1": 0.1884803945655478,
+    "3": 0.33676999522908485,
+    "5": 0.4030252401417771,
+    "10": 0.4838199854041482
+   },
+   "s3_ci": [
+    0.27019721465625096,
+    0.40809179774146553
+   ],
+   "emitted": 110169,
+   "unique": 105383,
+   "status": {
+    "survived": 14286,
+    "killed": 90744,
+    "equivalent_tce": 200,
+    "unresolved": 76,
+    "invalid": 77
+   },
+   "witness_mutants": 1558,
+   "witness_flow": {
+    "first_witnesses": 1635,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 14,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 63,
+    "witnesses": 1558
+   },
+   "unconfirmed_witnesses": 14,
+   "undecided_mutants": 77,
+   "undecided_bugs": 10,
+   "survivors_per_bug_median": 18.0,
+   "emitted_per_bug_median": 133.0,
+   "exact_fault": 2,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 3,
+   "covered_fault_rate": 0.5180180180180181,
+   "gap_fault_rate": 0.8762886597938144,
+   "unrun_fault_rate": 0.16666666666666666,
+   "by_region": {
+    "function": 0.6,
+    "statement": 0.5789473684210527,
+    "mixed": 0.7014925373134329
+   },
+   "rate_optimistic": 0.6492307692307693,
+   "rate_any_fix_test": 0.6215384615384615
+  },
+  "universalmutator": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 184,
+   "rate": 0.5661538461538461,
+   "rate_ci": [
+    0.48580441640378547,
+    0.6488095238095238
+   ],
+   "rate_project_mean": 0.5618748772594926,
+   "rate_leave_one_project_out": [
+    0.5483870967741935,
+    0.5819935691318328
+   ],
+   "rate_without_arrow": 0.5819935691318328,
+   "rate_conditional": 0.5661538461538461,
+   "rate_conditional_ci": [
+    0.48580441640378547,
+    0.6488095238095238
+   ],
+   "r": {
+    "1": 0.0605979066627225,
+    "5": 0.17823579967559594,
+    "10": 0.25887012543217236,
+    "25": 0.3649347457830661,
+    "50": 0.44110631004205025,
+    "100": 0.49430791016900044
+   },
+   "r10_ci": [
+    0.20310210318056723,
+    0.3191196812886259
+   ],
+   "s": {
+    "1": 0.1790905556763777,
+    "3": 0.3255132311357593,
+    "5": 0.39528770711355177,
+    "10": 0.4680001915379322
+   },
+   "s3_ci": [
+    0.26793037680726534,
+    0.38450520735222804
+   ],
+   "emitted": 48313,
+   "unique": 48313,
+   "status": {
+    "survived": 8418,
+    "killed": 39808,
+    "unresolved": 82,
+    "equivalent_tce": 5
+   },
+   "witness_mutants": 1347,
+   "witness_flow": {
+    "first_witnesses": 1388,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 4,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 37,
+    "witnesses": 1347
+   },
+   "unconfirmed_witnesses": 4,
+   "undecided_mutants": 82,
+   "undecided_bugs": 7,
+   "survivors_per_bug_median": 11.0,
+   "emitted_per_bug_median": 56.0,
+   "exact_fault": 2,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 2,
+   "covered_fault_rate": 0.42792792792792794,
+   "gap_fault_rate": 0.8969072164948454,
+   "unrun_fault_rate": 0.3333333333333333,
+   "by_region": {
+    "function": 0.5909090909090909,
+    "statement": 0.2894736842105263,
+    "mixed": 0.6417910447761194
+   },
+   "rate_optimistic": 0.5876923076923077,
+   "rate_any_fix_test": 0.5692307692307692
+  },
+  "fest": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 134,
+   "rate": 0.4123076923076923,
+   "rate_ci": [
+    0.3391304347826087,
+    0.4867549668874172
+   ],
+   "rate_project_mean": 0.4110803726188342,
+   "rate_leave_one_project_out": [
+    0.3954983922829582,
+    0.42443729903536975
+   ],
+   "rate_without_arrow": 0.3954983922829582,
+   "rate_conditional": 0.4123076923076923,
+   "rate_conditional_ci": [
+    0.3391304347826087,
+    0.4867549668874172
+   ],
+   "r": {
+    "1": 0.0726709038905107,
+    "5": 0.1956873823940584,
+    "10": 0.26236677593968044,
+    "25": 0.3447196522344955,
+    "50": 0.38069981849330226,
+    "100": 0.3987156101267728
+   },
+   "r10_ci": [
+    0.20424685235356885,
+    0.324278146920821
+   ],
+   "s": {
+    "1": 0.20921122100863487,
+    "3": 0.32253928935619436,
+    "5": 0.3561037894397703,
+    "10": 0.381951357953165
+   },
+   "s3_ci": [
+    0.2605575075896762,
+    0.38760274727160626
+   ],
+   "emitted": 17638,
+   "unique": 17587,
+   "status": {
+    "survived": 4228,
+    "killed": 13025,
+    "equivalent_tce": 215,
+    "unresolved": 11,
+    "invalid": 98,
+    "noop": 10
+   },
+   "witness_mutants": 610,
+   "witness_flow": {
+    "first_witnesses": 634,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 2,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 22,
+    "witnesses": 610
+   },
+   "unconfirmed_witnesses": 2,
+   "undecided_mutants": 11,
+   "undecided_bugs": 5,
+   "survivors_per_bug_median": 3.0,
+   "emitted_per_bug_median": 24.0,
+   "exact_fault": 1,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 0,
+   "covered_fault_rate": 0.23423423423423423,
+   "gap_fault_rate": 0.8350515463917526,
+   "unrun_fault_rate": 0.16666666666666666,
+   "by_region": {
+    "function": 0.38181818181818183,
+    "statement": 0.39473684210526316,
+    "mixed": 0.5223880597014925
+   },
+   "rate_optimistic": 0.4276923076923077,
+   "rate_any_fix_test": 0.4153846153846154
+  },
+  "irradiate": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 139,
+   "rate": 0.4276923076923077,
+   "rate_ci": [
+    0.33933933933933935,
+    0.5137614678899083
+   ],
+   "rate_project_mean": 0.42521901175747334,
+   "rate_leave_one_project_out": [
+    0.4096774193548387,
+    0.44516129032258067
+   ],
+   "rate_without_arrow": 0.4340836012861736,
+   "rate_conditional": 0.4276923076923077,
+   "rate_conditional_ci": [
+    0.33933933933933935,
+    0.5137614678899083
+   ],
+   "r": {
+    "1": 0.058858148121632765,
+    "5": 0.16008957038072205,
+    "10": 0.2189413111673924,
+    "25": 0.2969752285698696,
+    "50": 0.3528573055015934,
+    "100": 0.39349078968508533
+   },
+   "r10_ci": [
+    0.16014887223342567,
+    0.27983956877676747
+   ],
+   "s": {
+    "1": 0.16192365026928016,
+    "3": 0.27074742594548545,
+    "5": 0.31853101806274714,
+    "10": 0.36752114872103026
+   },
+   "s3_ci": [
+    0.20528415911583292,
+    0.3354883011900045
+   ],
+   "emitted": 38432,
+   "unique": 36076,
+   "status": {
+    "survived": 6463,
+    "killed": 29538,
+    "unresolved": 38,
+    "equivalent_tce": 36,
+    "noop": 1
+   },
+   "witness_mutants": 935,
+   "witness_flow": {
+    "first_witnesses": 959,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 2,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 22,
+    "witnesses": 935
+   },
+   "unconfirmed_witnesses": 2,
+   "undecided_mutants": 38,
+   "undecided_bugs": 5,
+   "survivors_per_bug_median": 6.0,
+   "emitted_per_bug_median": 39.0,
+   "exact_fault": 0,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 0,
+   "covered_fault_rate": 0.3063063063063063,
+   "gap_fault_rate": 0.7216494845360825,
+   "unrun_fault_rate": 0.16666666666666666,
+   "by_region": {
+    "function": 0.4681818181818182,
+    "statement": 0.10526315789473684,
+    "mixed": 0.47761194029850745
+   },
+   "rate_optimistic": 0.4430769230769231,
+   "rate_any_fix_test": 0.4338461538461538
+  },
+  "deployproof": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 143,
+   "rate": 0.44,
+   "rate_ci": [
+    0.3674698795180723,
+    0.5144508670520231
+   ],
+   "rate_project_mean": 0.4405370270754886,
+   "rate_leave_one_project_out": [
+    0.4212218649517685,
+    0.45483870967741935
+   ],
+   "rate_without_arrow": 0.4212218649517685,
+   "rate_conditional": 0.44,
+   "rate_conditional_ci": [
+    0.3674698795180723,
+    0.5144508670520231
+   ],
+   "r": {
+    "1": 0.0813155800945917,
+    "5": 0.21664012147298872,
+    "10": 0.2874784945035149,
+    "25": 0.36589152469229247,
+    "50": 0.40189444074991454,
+    "100": 0.4206274104532496
+   },
+   "r10_ci": [
+    0.22908095152816427,
+    0.35359599870403896
+   ],
+   "s": {
+    "1": 0.20369127806713874,
+    "3": 0.3211175263519308,
+    "5": 0.36288990673430443,
+    "10": 0.39913087721637114
+   },
+   "s3_ci": [
+    0.2690209627308902,
+    0.3778531586690555
+   ],
+   "emitted": 17565,
+   "unique": 17562,
+   "status": {
+    "survived": 4925,
+    "killed": 12599,
+    "unresolved": 18,
+    "equivalent_tce": 20
+   },
+   "witness_mutants": 721,
+   "witness_flow": {
+    "first_witnesses": 742,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 0,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 21,
+    "witnesses": 721
+   },
+   "unconfirmed_witnesses": 0,
+   "undecided_mutants": 18,
+   "undecided_bugs": 7,
+   "survivors_per_bug_median": 4.0,
+   "emitted_per_bug_median": 22.0,
+   "exact_fault": 0,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 1,
+   "covered_fault_rate": 0.27927927927927926,
+   "gap_fault_rate": 0.8247422680412371,
+   "unrun_fault_rate": 0.16666666666666666,
+   "by_region": {
+    "function": 0.39545454545454545,
+    "statement": 0.5,
+    "mixed": 0.5522388059701493
+   },
+   "rate_optimistic": 0.46153846153846156,
+   "rate_any_fix_test": 0.4430769230769231
+  },
+  "balamut + extreme": {
+   "bugs": 325,
+   "available_bugs": 325,
+   "unavailable_bugs": 0,
+   "detected": 161,
+   "rate": 0.49538461538461537,
+   "rate_ci": [
+    0.4174174174174174,
+    0.5728155339805825
+   ],
+   "rate_project_mean": 0.4986611678919371,
+   "rate_leave_one_project_out": [
+    0.4774193548387097,
+    0.5112540192926045
+   ],
+   "rate_without_arrow": 0.4983922829581994,
+   "rate_conditional": 0.49538461538461537,
+   "rate_conditional_ci": [
+    0.4174174174174174,
+    0.5728155339805825
+   ],
+   "r": {
+    "1": 0.06990872147985176,
+    "5": 0.18721392469073309,
+    "10": 0.2654115216299484,
+    "25": 0.37144828831612825,
+    "50": 0.4298913951845175,
+    "100": 0.46659397190132024
+   },
+   "r10_ci": [
+    0.21116845429739617,
+    0.3240546561643307
+   ],
+   "s": {
+    "1": 0.21213344162757816,
+    "3": 0.3548274222594918,
+    "5": 0.407583901903953,
+    "10": 0.4521808957561098
+   },
+   "s3_ci": [
+    0.29559845925541856,
+    0.4164966670363181
+   ],
+   "emitted": 26948,
+   "unique": 26675,
+   "status": {
+    "survived": 4036,
+    "killed": 22607,
+    "unresolved": 21,
+    "invalid": 10,
+    "equivalent_tce": 1
+   },
+   "witness_mutants": 759,
+   "witness_flow": {
+    "first_witnesses": 794,
+    "unknown_confirmations": 0,
+    "unconfirmed_witnesses": 2,
+    "synthetic_witnesses": 0,
+    "feature_only_witnesses": 33,
+    "witnesses": 759
+   },
+   "unconfirmed_witnesses": 2,
+   "undecided_mutants": 21,
+   "undecided_bugs": 6,
+   "survivors_per_bug_median": 5.0,
+   "emitted_per_bug_median": 33.0,
+   "exact_fault": 3,
+   "exact_fault_applicable": 296,
+   "only_this_tool": 0,
+   "covered_fault_rate": 0.30180180180180183,
+   "gap_fault_rate": 0.9690721649484536,
+   "unrun_fault_rate": 0.0,
+   "by_region": {
+    "function": 0.5136363636363637,
+    "statement": 0.15789473684210525,
+    "mixed": 0.6268656716417911
+   },
+   "rate_optimistic": 0.5138461538461538,
+   "rate_any_fix_test": 0.5015384615384615
+  }
+ },
+ "versus_focus": [
+  {
+   "other": "mutmut",
+   "focus_only": 26,
+   "other_only": 37,
+   "p_midp": 0.1686429114397034,
+   "difference": -0.033846153846153845,
+   "difference_ci": [
+    -0.10495626822157435,
+    0.02865329512893983
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 0.6745716457588136
+  },
+  {
+   "other": "cosmic-ray",
+   "focus_only": 27,
+   "other_only": 35,
+   "p_midp": 0.31350305329645284,
+   "difference": -0.024615384615384615,
+   "difference_ci": [
+    -0.08083832335329341,
+    0.027700831024930747
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 0.9405091598893585
+  },
+  {
+   "other": "poodle",
+   "focus_only": 9,
+   "other_only": 56,
+   "p_midp": 1.1827848105236058e-09,
+   "difference": -0.14461538461538462,
+   "difference_ci": [
+    -0.20860927152317882,
+    -0.08771929824561403
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 8.27949367366524e-09
+  },
+  {
+   "other": "pytest-gremlins",
+   "focus_only": 52,
+   "other_only": 2,
+   "p_midp": 8.554268404736831e-14,
+   "difference": 0.15384615384615385,
+   "difference_ci": [
+    0.10725552050473186,
+    0.19661016949152543
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 8.554268404736831e-13
+  },
+  {
+   "other": "pytest-leela",
+   "focus_only": 43,
+   "other_only": 5,
+   "p_midp": 7.59715845788378e-09,
+   "difference": 0.11692307692307692,
+   "difference_ci": [
+    0.0748502994011976,
+    0.1597222222222222
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 4.5582950747302675e-08
+  },
+  {
+   "other": "mutation",
+   "focus_only": 14,
+   "other_only": 84,
+   "p_midp": 1.4279916347173858e-13,
+   "difference": -0.2153846153846154,
+   "difference_ci": [
+    -0.29605263157894735,
+    -0.1382636655948553
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 1.2851924712456472e-12
+  },
+  {
+   "other": "universalmutator",
+   "focus_only": 12,
+   "other_only": 65,
+   "p_midp": 3.485851300097458e-10,
+   "difference": -0.16307692307692306,
+   "difference_ci": [
+    -0.2297734627831715,
+    -0.09846153846153846
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 2.7886810400779663e-09
+  },
+  {
+   "other": "fest",
+   "focus_only": 26,
+   "other_only": 29,
+   "p_midp": 0.6888797607233396,
+   "difference": -0.009230769230769232,
+   "difference_ci": [
+    -0.08360128617363344,
+    0.05952380952380952
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 0.9405091598893585
+  },
+  {
+   "other": "irradiate",
+   "focus_only": 38,
+   "other_only": 46,
+   "p_midp": 0.38566942011927957,
+   "difference": -0.024615384615384615,
+   "difference_ci": [
+    -0.10355029585798817,
+    0.05982905982905983
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 0.9405091598893585
+  },
+  {
+   "other": "deployproof",
+   "focus_only": 22,
+   "other_only": 34,
+   "p_midp": 0.11116111910399348,
+   "difference": -0.036923076923076927,
+   "difference_ci": [
+    -0.11078717201166181,
+    0.026470588235294117
+   ],
+   "both_available": {
+    "bugs": 325,
+    "projects": 26
+   },
+   "p_holm": 0.5558055955199674
+  }
+ ],
+ "overlap": {
+  "labels": [
+   "balamut",
+   "mutmut",
+   "cosmic-ray",
+   "poodle",
+   "pytest-gremlins",
+   "pytest-leela",
+   "mutation",
+   "universalmutator",
+   "fest",
+   "irradiate",
+   "deployproof"
+  ],
+  "values": [
+   [
+    0,
+    26,
+    27,
+    9,
+    52,
+    43,
+    14,
+    12,
+    26,
+    38,
+    22
+   ],
+   [
+    37,
+    0,
+    42,
+    18,
+    78,
+    69,
+    11,
+    15,
+    42,
+    26,
+    40
+   ],
+   [
+    35,
+    39,
+    0,
+    16,
+    65,
+    54,
+    14,
+    9,
+    36,
+    49,
+    37
+   ],
+   [
+    56,
+    54,
+    55,
+    0,
+    98,
+    87,
+    16,
+    23,
+    47,
+    60,
+    37
+   ],
+   [
+    2,
+    17,
+    7,
+    1,
+    0,
+    10,
+    9,
+    4,
+    7,
+    25,
+    5
+   ],
+   [
+    5,
+    20,
+    8,
+    2,
+    22,
+    0,
+    8,
+    5,
+    7,
+    28,
+    7
+   ],
+   [
+    84,
+    70,
+    76,
+    39,
+    129,
+    116,
+    0,
+    34,
+    79,
+    72,
+    70
+   ],
+   [
+    65,
+    57,
+    54,
+    29,
+    107,
+    96,
+    17,
+    0,
+    64,
+    61,
+    62
+   ],
+   [
+    29,
+    34,
+    31,
+    3,
+    60,
+    48,
+    12,
+    14,
+    0,
+    43,
+    12
+   ],
+   [
+    46,
+    23,
+    49,
+    21,
+    83,
+    74,
+    10,
+    16,
+    48,
+    0,
+    47
+   ],
+   [
+    34,
+    41,
+    41,
+    2,
+    67,
+    57,
+    12,
+    21,
+    21,
+    51,
+    0
+   ]
+  ]
+ },
+ "union_rate": 0.6953846153846154,
+ "coverage_guided_rate": 0.31076923076923074,
+ "fault_covered_by_old": 222,
+ "fault_coverage_gap": 97,
+ "fault_lines_unrun": 6,
+ "region_kinds": {
+  "statement": 38,
+  "mixed": 67,
+  "function": 220
+ },
+ "repair_shapes": {
+  "modification": 273,
+  "pure_addition": 52
+ },
+ "fault_classes": {
+  "wrong_literal_or_constant": 19,
+  "string_format_or_regex": 61,
+  "missing_or_wrong_condition": 91,
+  "missing_statement_or_call": 19,
+  "call_arguments_or_api_use": 32,
+  "type_or_none_handling": 32,
+  "exception_handling": 15,
+  "wrong_variable_or_value": 15,
+  "other": 4,
+  "comparison_or_boundary": 6,
+  "algorithm_or_data_structure": 19,
+  "wrong_return_value": 7,
+  "arithmetic_or_operator": 5
+ },
+ "by_fault_class": {
+  "algorithm_or_data_structure": {
+   "balamut": 0.5263157894736842,
+   "mutmut": 0.47368421052631576,
+   "cosmic-ray": 0.47368421052631576,
+   "poodle": 0.5263157894736842,
+   "pytest-gremlins": 0.42105263157894735,
+   "pytest-leela": 0.42105263157894735,
+   "mutation": 0.5263157894736842,
+   "universalmutator": 0.5263157894736842,
+   "fest": 0.47368421052631576,
+   "irradiate": 0.3157894736842105,
+   "deployproof": 0.5263157894736842
+  },
+  "arithmetic_or_operator": {
+   "balamut": 0.4,
+   "mutmut": 0.4,
+   "cosmic-ray": 0.6,
+   "poodle": 0.6,
+   "pytest-gremlins": 0.2,
+   "pytest-leela": 0.4,
+   "mutation": 0.8,
+   "universalmutator": 0.8,
+   "fest": 0.2,
+   "irradiate": 0.6,
+   "deployproof": 0.4
+  },
+  "call_arguments_or_api_use": {
+   "balamut": 0.375,
+   "mutmut": 0.5,
+   "cosmic-ray": 0.28125,
+   "poodle": 0.34375,
+   "pytest-gremlins": 0.125,
+   "pytest-leela": 0.15625,
+   "mutation": 0.5625,
+   "universalmutator": 0.53125,
+   "fest": 0.3125,
+   "irradiate": 0.4375,
+   "deployproof": 0.28125
+  },
+  "comparison_or_boundary": {
+   "balamut": 0.6666666666666666,
+   "mutmut": 0.6666666666666666,
+   "cosmic-ray": 0.8333333333333334,
+   "poodle": 0.5,
+   "pytest-gremlins": 0.5,
+   "pytest-leela": 0.3333333333333333,
+   "mutation": 0.6666666666666666,
+   "universalmutator": 0.6666666666666666,
+   "fest": 0.16666666666666666,
+   "irradiate": 0.3333333333333333,
+   "deployproof": 0.16666666666666666
+  },
+  "exception_handling": {
+   "balamut": 0.3333333333333333,
+   "mutmut": 0.2,
+   "cosmic-ray": 0.4666666666666667,
+   "poodle": 0.3333333333333333,
+   "pytest-gremlins": 0.2,
+   "pytest-leela": 0.2,
+   "mutation": 0.4,
+   "universalmutator": 0.4666666666666667,
+   "fest": 0.4,
+   "irradiate": 0.26666666666666666,
+   "deployproof": 0.3333333333333333
+  },
+  "missing_or_wrong_condition": {
+   "balamut": 0.5494505494505495,
+   "mutmut": 0.6043956043956044,
+   "cosmic-ray": 0.6593406593406593,
+   "poodle": 0.7032967032967034,
+   "pytest-gremlins": 0.4065934065934066,
+   "pytest-leela": 0.4725274725274725,
+   "mutation": 0.8021978021978022,
+   "universalmutator": 0.7802197802197802,
+   "fest": 0.5824175824175825,
+   "irradiate": 0.6263736263736264,
+   "deployproof": 0.5824175824175825
+  },
+  "missing_statement_or_call": {
+   "balamut": 0.631578947368421,
+   "mutmut": 0.5789473684210527,
+   "cosmic-ray": 0.5263157894736842,
+   "poodle": 0.7368421052631579,
+   "pytest-gremlins": 0.15789473684210525,
+   "pytest-leela": 0.2631578947368421,
+   "mutation": 0.7894736842105263,
+   "universalmutator": 0.6842105263157895,
+   "fest": 0.5789473684210527,
+   "irradiate": 0.631578947368421,
+   "deployproof": 0.5263157894736842
+  },
+  "other": {
+   "balamut": 0.0,
+   "mutmut": 0.0,
+   "cosmic-ray": 0.0,
+   "poodle": 0.25,
+   "pytest-gremlins": 0.0,
+   "pytest-leela": 0.0,
+   "mutation": 0.25,
+   "universalmutator": 0.25,
+   "fest": 0.0,
+   "irradiate": 0.0,
+   "deployproof": 0.25
+  },
+  "string_format_or_regex": {
+   "balamut": 0.2459016393442623,
+   "mutmut": 0.26229508196721313,
+   "cosmic-ray": 0.22950819672131148,
+   "poodle": 0.4098360655737705,
+   "pytest-gremlins": 0.13114754098360656,
+   "pytest-leela": 0.14754098360655737,
+   "mutation": 0.4098360655737705,
+   "universalmutator": 0.32786885245901637,
+   "fest": 0.26229508196721313,
+   "irradiate": 0.19672131147540983,
+   "deployproof": 0.3770491803278688
+  },
+  "type_or_none_handling": {
+   "balamut": 0.3125,
+   "mutmut": 0.5,
+   "cosmic-ray": 0.3125,
+   "poodle": 0.5625,
+   "pytest-gremlins": 0.21875,
+   "pytest-leela": 0.1875,
+   "mutation": 0.625,
+   "universalmutator": 0.625,
+   "fest": 0.25,
+   "irradiate": 0.625,
+   "deployproof": 0.21875
+  },
+  "wrong_literal_or_constant": {
+   "balamut": 0.3157894736842105,
+   "mutmut": 0.21052631578947367,
+   "cosmic-ray": 0.3157894736842105,
+   "poodle": 0.7894736842105263,
+   "pytest-gremlins": 0.21052631578947367,
+   "pytest-leela": 0.3157894736842105,
+   "mutation": 0.8421052631578947,
+   "universalmutator": 0.42105263157894735,
+   "fest": 0.7894736842105263,
+   "irradiate": 0.21052631578947367,
+   "deployproof": 0.8421052631578947
+  },
+  "wrong_return_value": {
+   "balamut": 0.42857142857142855,
+   "mutmut": 0.14285714285714285,
+   "cosmic-ray": 0.42857142857142855,
+   "poodle": 0.42857142857142855,
+   "pytest-gremlins": 0.42857142857142855,
+   "pytest-leela": 0.42857142857142855,
+   "mutation": 0.2857142857142857,
+   "universalmutator": 0.42857142857142855,
+   "fest": 0.42857142857142855,
+   "irradiate": 0.0,
+   "deployproof": 0.42857142857142855
+  },
+  "wrong_variable_or_value": {
+   "balamut": 0.13333333333333333,
+   "mutmut": 0.3333333333333333,
+   "cosmic-ray": 0.2,
+   "poodle": 0.4,
+   "pytest-gremlins": 0.0,
+   "pytest-leela": 0.06666666666666667,
+   "mutation": 0.4666666666666667,
+   "universalmutator": 0.4,
+   "fest": 0.06666666666666667,
+   "irradiate": 0.3333333333333333,
+   "deployproof": 0.2
+  }
+ },
+ "unresolved_mutants": 180,
+ "oracle_sensitivity": {
+  "seed": 20261105,
+  "population": 157058,
+  "sampled": 1000,
+  "bugs": 207,
+  "full_suite": {
+   "killed": 998,
+   "unresolved": 2
+  },
+  "by_first_stage": {
+   "killer": {
+    "killed": 879,
+    "unresolved": 2
+   },
+   "subset": {
+    "killed": 119
+   }
+  },
+  "agreement": 1.0,
+  "killed_of_sampled": 0.998,
+  "discordant": [
+   {
+    "bug": "cattrs@02c3ead21d62",
+    "aid": "a6624c9b02070acfd0f498cb",
+    "first_stage": "killer",
+    "first_killed_by": [
+     "tests/preconf/test_pyyaml.py::test_pyyaml"
+    ],
+    "full_suite": "unresolved",
+    "reason": "<external-kill>",
+    "tools": [
+     "mutation"
+    ],
+    "fault_tests_red": []
+   },
+   {
+    "bug": "portion@fc83f86848ea",
+    "aid": "a4a7a7060a4893faa8627fc9",
+    "first_stage": "killer",
+    "first_killed_by": [
+     "tests/test_doc.py::test_readme"
+    ],
+    "full_suite": "unresolved",
+    "reason": "<external-kill>",
+    "tools": [
+     "universalmutator"
+    ],
+    "fault_tests_red": []
+   }
+  ]
+ },
+ "selection_incomplete_accepted": [],
+ "preview_problems": []
+}

@@ -1,0 +1,37 @@
+{
+ "type": "object",
+ "required": [
+  "items"
+ ],
+ "properties": {
+  "items": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "pure_fix",
+     "fault_tests",
+     "note"
+    ],
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "pure_fix": {
+      "type": "boolean"
+     },
+     "fault_tests": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "note": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ }
+}

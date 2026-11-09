@@ -55,7 +55,7 @@ build-backend = "hatchling.build"
 packages = ["src/balamut"]
 
 [tool.hatch.build.targets.sdist]
-exclude = ["/.venv*", "/.balamut", "/perf-local", "/dist"]
+exclude = ["/.venv*", "/.balamut", "/perf-local", "/dist", "/bench"]
 
 [tool.balamut]
 # balamut mutates itself with its own suite: the repo's dogfood profile (ships in the sdist as a live config example).

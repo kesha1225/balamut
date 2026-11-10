@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import json
+import multiprocessing
 import os
 import sys
 from collections.abc import Callable, Generator
@@ -367,6 +368,10 @@ def scrub_transport_env() -> None:
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
     scrub_transport_env()
+    # pytest-fast starts its workers with ``daemon=True``, and multiprocessing refuses to start a child from a
+    # daemonic process (a test's ``multiprocessing.Pool``). The flag changes only this process's own view: the
+    # controller still terminates the worker as a daemon, and the worker leaves through ``os._exit``.
+    multiprocessing.current_process().daemon = False
     _apply_or_switch(item)
 
 

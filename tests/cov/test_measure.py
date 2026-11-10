@@ -320,6 +320,40 @@ def test_real_forkserver_run_credits_a_cached_body_to_every_test_that_calls_it(t
 
 
 @pytest.mark.daemon
+def test_real_forkserver_run_lets_a_test_start_a_process_pool(tmp_path: Path) -> None:
+    # pytest-fast workers are daemonic processes, and multiprocessing refuses to start children from one.
+    root = make_project(
+        tmp_path / "proj",
+        {
+            "tests/test_pool.py": (
+                "from multiprocessing import Pool\n\nfrom pkg.calc import is_adult\n\n\n"
+                "def test_pool():\n"
+                "    with Pool(2) as pool:\n"
+                "        assert pool.map(abs, [-1, -2]) == [1, 2]\n"
+                "    assert is_adult(30)\n"
+            ),
+        },
+    )
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    profile = load_profile(root)
+    previous = Path.cwd()
+    os.chdir(root)
+    try:
+        result = measure_coverage(
+            MeasureRequest(
+                profile=profile, coverage_file=root / ".balamut/cov", targets=("tests/test_pool.py",), workers=1
+            ),
+            isolation=NoIsolation(),
+        )
+    finally:
+        os.chdir(previous)
+    assert result.returncode == 0, result.detail
+    assert load_coverage_map(result.coverage_file).tests_covering("src/pkg/calc.py", 10) == {
+        "tests/test_pool.py::test_pool"
+    }
+
+
+@pytest.mark.daemon
 def test_real_forkserver_run_survives_a_project_that_errors_on_warnings(tmp_path: Path) -> None:
     # Under `filterwarnings = error` the preload's and the plugins' import warnings, and the empty shard of a worker
     # left without a test (four workers, three tests), must not kill the forkserver or a worker.

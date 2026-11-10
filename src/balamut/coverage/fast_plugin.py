@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import inspect
 import math
+import multiprocessing
 import os
 import re
 import sys
@@ -185,6 +186,10 @@ def pytest_runtest_protocol(item: Item) -> None:
     """Assign the node id to the whole setup/call/teardown protocol of the current test, start it with cold caches
     of the measured source, and make the environment clean for whatever the test itself spawns."""
     scrub_worker_env()
+    # pytest-fast starts its workers with ``daemon=True``, and multiprocessing refuses to start a child from a
+    # daemonic process (a test's ``multiprocessing.Pool``). The flag changes only this process's own view: the
+    # controller still terminates the worker as a daemon, and the worker leaves through ``os._exit``.
+    multiprocessing.current_process().daemon = False
     state = item.config.stash.get(_WORKER_STATE, None)
     if state is not None:
         state.coverage.switch_context(item.nodeid)

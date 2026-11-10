@@ -77,6 +77,28 @@ def test_a_real_campaign_runs_a_project_that_errors_on_warnings(tmp_path: Path) 
     assert "unsupported" not in {str(row["status"]) for row in rows}
 
 
+def test_a_real_campaign_runs_a_killer_that_starts_a_process_pool(tmp_path: Path) -> None:
+    # pytest-fast workers are daemonic processes: the pool must start both in the coverage run and in the paired
+    # original of the mutant run, or the killer fails there and the kill is never confirmed.
+    root = make_project(
+        tmp_path / "proj",
+        {
+            "tests/test_calc.py": (
+                "from multiprocessing import Pool\n\nfrom pkg.calc import clamp\n\n\n"
+                "def test_clamp_low_beside_a_pool() -> None:\n"
+                "    with Pool(2) as pool:\n"
+                "        assert pool.map(abs, [-1, -2]) == [1, 2]\n"
+                "    assert clamp(-3, 0, 10) == 0\n"
+            )
+        },
+    )
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+    rows = _rows(_mutate(root, None))
+
+    assert _one(rows, line=3, original="return low", mutated="return None")["status"] == "killed"
+
+
 def test_a_real_campaign_kills_survives_and_reuses_its_cache(tmp_path: Path) -> None:
     root = make_project(tmp_path / "proj")
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)

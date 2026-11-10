@@ -280,7 +280,7 @@ def main() -> None:
     p.add_argument("names", nargs="+")
     p = sub.add_parser("refresh-tool", help="install a tool's release from NATIVE_TOOLS into the measured images")
     p.add_argument("tool", choices=sorted(NATIVE_TOOLS))
-    p.add_argument("--measured", required=True, help="the tag that keeps the images as measured (balamut-0.1.0)")
+    p.add_argument("--measured", required=True, help="the tag that keeps the images as measured (balamut-0.1.2)")
     p.add_argument("--unpin", nargs="+", required=True,
                    help="distributions free to change: the tool's own and the dependencies its release moves")
     p = sub.add_parser("validate-all", help="validate many subjects, several containers at a time")

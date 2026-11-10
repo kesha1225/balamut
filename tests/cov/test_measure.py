@@ -280,6 +280,46 @@ def test_real_forkserver_run_records_exact_per_test_contexts(tmp_path: Path) -> 
 
 
 @pytest.mark.daemon
+def test_real_forkserver_run_credits_a_cached_body_to_every_test_that_calls_it(tmp_path: Path) -> None:
+    # One worker runs both tests in one process: without a cold cache per test the body of `base_rate` (line 6)
+    # runs only under the test that warms the cache, and the test that checks its value is never selected.
+    root = make_project(
+        tmp_path / "proj",
+        {
+            "src/pkg/rates.py": (
+                "from functools import lru_cache\n\n\n"
+                "@lru_cache(maxsize=None)\ndef base_rate():\n    return 10\n\n\n"
+                "def price(quantity):\n    return quantity * base_rate()\n"
+            ),
+            "tests/test_rates.py": (
+                "from pkg.rates import base_rate, price\n\n\n"
+                "def test_warm_cache():\n    base_rate()\n\n\n"
+                "def test_price():\n    assert price(2) == 20\n"
+            ),
+        },
+    )
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    profile = load_profile(root)
+    previous = Path.cwd()
+    os.chdir(root)
+    try:
+        result = measure_coverage(
+            MeasureRequest(
+                profile=profile, coverage_file=root / ".balamut/cov", targets=("tests/test_rates.py",), workers=1
+            ),
+            isolation=NoIsolation(),
+        )
+    finally:
+        os.chdir(previous)
+    assert result.returncode == 0, result.detail
+    cov = load_coverage_map(result.coverage_file)
+    assert cov.tests_covering("src/pkg/rates.py", 6) == {
+        "tests/test_rates.py::test_warm_cache",
+        "tests/test_rates.py::test_price",
+    }
+
+
+@pytest.mark.daemon
 def test_real_forkserver_run_survives_a_project_that_errors_on_warnings(tmp_path: Path) -> None:
     # Under `filterwarnings = error` the preload's and the plugins' import warnings, and the empty shard of a worker
     # left without a test (four workers, three tests), must not kill the forkserver or a worker.

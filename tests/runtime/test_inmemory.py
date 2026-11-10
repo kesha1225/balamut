@@ -154,6 +154,62 @@ def test_resolve_function_module_level_and_method() -> None:
     assert resolve_function(module, "outer.<locals>.inner") is None
 
 
+_PRIVATE_SRC = (
+    "def __module_level():\n"
+    "    return 0\n"
+    "class LFUCache:\n"
+    "    def __touch(self):\n"
+    "        return 1\n"
+    "    def __len__(self):\n"
+    "        return 2\n"
+    "    class __Link:\n"
+    "        def __unlink(self):\n"
+    "            return 3\n"
+    "class __Hidden:\n"
+    "    def __touch(self):\n"
+    "        return 4\n"
+    "class __:\n"
+    "    def __touch(self):\n"
+    "        return 5\n"
+)
+
+
+def test_resolve_function_finds_private_names_under_their_mangled_keys() -> None:
+    module = types.ModuleType("private_mod")
+    exec(compile(_PRIVATE_SRC, "private_mod.py", "exec"), vars(module))
+    namespace = vars(module)
+
+    def code_of(qualname: str) -> types.CodeType:
+        resolved = resolve_function(module, qualname)
+        assert resolved is not None, qualname
+        assert resolved.__code__.co_qualname == qualname
+        return resolved.__code__
+
+    assert code_of("LFUCache.__touch") is namespace["LFUCache"]._LFUCache__touch.__code__
+    assert code_of("LFUCache.__Link.__unlink") is namespace["LFUCache"]._LFUCache__Link._Link__unlink.__code__
+    assert code_of("__Hidden.__touch") is namespace["__Hidden"]._Hidden__touch.__code__
+    code_of("LFUCache.__len__")  # a dunder is never mangled
+    code_of("__module_level")  # module level is never mangled
+    code_of("__.__touch")  # a class named only with underscores mangles nothing
+
+
+def test_patch_code_reaches_a_private_method() -> None:
+    module = types.ModuleType("private_apply")
+    source = "class LRUCache:\n    def __touch(self, key):\n        return key + 1\n"
+    exec(compile(source, "private_apply.py", "exec"), vars(module))
+    mutated = compile_function_code(source.replace("key + 1", "key - 1"), "LRUCache.__touch", "private_apply.py")
+    func = resolve_function(module, "LRUCache.__touch")
+    assert func is not None
+    assert mutated is not None
+
+    restore = patch_code(func, mutated)
+    try:
+        assert module.LRUCache()._LRUCache__touch(5) == 4
+    finally:
+        restore()
+    assert module.LRUCache()._LRUCache__touch(5) == 6
+
+
 def test_resolve_function_does_not_crash_on_shadowed_namespace() -> None:
     module = types.ModuleType("shadow")
     exec(compile("C = 5\n", "s.py", "exec"), vars(module))

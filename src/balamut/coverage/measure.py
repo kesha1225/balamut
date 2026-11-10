@@ -25,6 +25,7 @@ from pytest_fast import resolve_workers
 
 from balamut.config import Profile
 from balamut.coverage import failures, fast_plugin
+from balamut.engine.daemon import PRELOAD_REWRITE_WARNING_FILTER, rewrite_warning_filter
 from balamut.isolation import Environ, EnvMap, Isolation, IsolationError, slot_prefix
 
 type Shards = list[list[str]]
@@ -33,7 +34,14 @@ type _TargetsByFile = dict[str, list[str]]
 EXIT_OK = 0
 EXIT_TESTS_FAILED = 1
 EXIT_INFRA = 2
-_PLUGINS = "-p balamut.coverage.fast_plugin -p balamut.coverage.failures -p no:cacheprovider"
+# ``fast_plugin`` imports ``failures`` before pytest loads it as a plugin: the same warning as the preload's.
+_PLUGINS = " ".join(
+    [
+        "-p balamut.coverage.fast_plugin -p balamut.coverage.failures -p no:cacheprovider",
+        PRELOAD_REWRITE_WARNING_FILTER,
+        rewrite_warning_filter("balamut.coverage.failures"),
+    ]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,10 +75,17 @@ def coverage_config(profile: Profile) -> str:
     """The coverage.py configuration of a measurement.
 
     ``source`` must be in the file (not only on a command line) for ``relative_files`` to take effect; line
-    mode only, because the engine reads line coverage and branch mode would record arcs instead."""
+    mode only, because the engine reads line coverage and branch mode would record arcs instead.
+
+    A worker that ran no test of the measured source saves an empty shard, and coverage warns about it. The worker
+    saves inside the pytest session, where a project's ``filterwarnings = error`` turns that warning into an
+    exception that crashes the worker, so the warning is disabled."""
     sources = "".join(f"    {root}\n" for root in profile.layout.source)
     concurrency = ",".join(profile.coverage.concurrency)
-    return f"[run]\nsource =\n{sources}relative_files = True\nbranch = False\nconcurrency = {concurrency}\n"
+    return (
+        f"[run]\nsource =\n{sources}relative_files = True\nbranch = False\nconcurrency = {concurrency}\n"
+        "disable_warnings = no-data-collected\n"
+    )
 
 
 class Launched(Protocol):

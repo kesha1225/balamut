@@ -185,6 +185,7 @@ def resolve_with_cache_clear(
     restore too: a persistent worker runs many mutants in one process, and a result cached under mutant A would
     otherwise leak into mutant B through the wrapper."""
     current = module
+    owner = ""  # the source name of the class whose namespace is searched; empty at module level
     for part in qualname.split("."):
         if part == _LOCALS_MARKER:
             return None, _noop_cache_clear
@@ -192,16 +193,30 @@ def resolve_with_cache_clear(
             members = vars(current)
         except TypeError:  # an intermediate name is shadowed by a non-namespace value
             return None, _noop_cache_clear
-        if part not in members:
+        key = _mangled(owner, part)
+        if key not in members:
             return None, _noop_cache_clear
-        current = members[part]
-    resolved = _descriptor_target(current)
+        current = members[key]
+        owner = part
+    resolved = descriptor_target(current)
     cache_clear = _lru_cache_clear(resolved)
     cache_clear()
     return _unwrap_to_function(resolved), cache_clear
 
 
-def _descriptor_target(member: Any) -> _Resolvable:
+def _mangled(owner: str, name: str) -> str:
+    """The key under which the body of class ``owner`` binds ``name``.
+
+    ``co_qualname`` keeps the source name (``LRUCache.__touch``), while the compiler stores a private name of a class
+    body mangled (``_LRUCache__touch``). A dunder name, a module-level name and a class named only with underscores
+    are not mangled."""
+    stripped = owner.lstrip("_")
+    if not stripped or not name.startswith("__") or name.endswith("__"):
+        return name
+    return f"_{stripped}{name}"
+
+
+def descriptor_target(member: Any) -> _Resolvable:
     """Unwrap a method descriptor (property, staticmethod, classmethod) down to the callable it holds.
 
     ``member`` comes from ``vars()`` and is untyped by nature. The static/class method test lives in a helper

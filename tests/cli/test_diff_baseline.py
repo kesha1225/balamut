@@ -3,7 +3,7 @@ scope changes found during the run."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
 
@@ -362,18 +362,32 @@ def test_the_test_inventory_ignores_test_body_edits(tmp_path: Path) -> None:
     assert diff.inventory_fingerprint(diff.load_profile(tmp_path).layout) == initial
 
 
-@pytest.mark.parametrize("change", ["add", "remove", "rename"])
-def test_the_test_inventory_tracks_the_set_of_collectable_files(tmp_path: Path, change: str) -> None:
+def _add_collectable(tests_dir: Path) -> None:
+    write_file(tests_dir / "added_test.py", "def test_added():\n    assert True\n")
+
+
+def _remove_collectable(tests_dir: Path) -> None:
+    (tests_dir / "example_test.py").unlink()
+
+
+def _rename_collectable(tests_dir: Path) -> None:
+    (tests_dir / "example_test.py").rename(tests_dir / "renamed_test.py")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        pytest.param(_add_collectable, id="add"),
+        pytest.param(_remove_collectable, id="remove"),
+        pytest.param(_rename_collectable, id="rename"),
+    ],
+)
+def test_the_test_inventory_tracks_the_set_of_collectable_files(tmp_path: Path, change: Callable[[Path], None]) -> None:
     tests_dir = tmp_path / "tests"
     write_file(tests_dir / "example_test.py", "def test_example():\n    assert True\n")
     initial = diff.inventory_fingerprint(diff.load_profile(tmp_path).layout)
 
-    if change == "add":
-        write_file(tests_dir / "added_test.py", "def test_added():\n    assert True\n")
-    elif change == "remove":
-        (tests_dir / "example_test.py").unlink()
-    else:
-        (tests_dir / "example_test.py").rename(tests_dir / "renamed_test.py")
+    change(tests_dir)
 
     assert diff.inventory_fingerprint(diff.load_profile(tmp_path).layout) != initial
 

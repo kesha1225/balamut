@@ -32,6 +32,7 @@ from balamut.coverage.measure import (
     failure_file_for,
     measure_coverage,
 )
+from balamut.engine import daemon
 from balamut.isolation import EnvOverlays, IsolationError, NoIsolation
 from bm_support import make_layout, make_project, write_file
 
@@ -276,6 +277,109 @@ def test_real_forkserver_run_records_exact_per_test_contexts(tmp_path: Path) -> 
         "tests/test_calc.py::test_clamp_low",
         "tests/test_calc.py::test_adult",
     }
+
+
+@pytest.mark.daemon
+def test_real_forkserver_run_credits_a_cached_body_to_every_test_that_calls_it(tmp_path: Path) -> None:
+    # One worker runs both tests in one process: without a cold cache per test the body of `base_rate` (line 6)
+    # runs only under the test that warms the cache, and the test that checks its value is never selected.
+    root = make_project(
+        tmp_path / "proj",
+        {
+            "src/pkg/rates.py": (
+                "from functools import lru_cache\n\n\n"
+                "@lru_cache(maxsize=None)\ndef base_rate():\n    return 10\n\n\n"
+                "def price(quantity):\n    return quantity * base_rate()\n"
+            ),
+            "tests/test_rates.py": (
+                "from pkg.rates import base_rate, price\n\n\n"
+                "def test_warm_cache():\n    base_rate()\n\n\n"
+                "def test_price():\n    assert price(2) == 20\n"
+            ),
+        },
+    )
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    profile = load_profile(root)
+    previous = Path.cwd()
+    os.chdir(root)
+    try:
+        result = measure_coverage(
+            MeasureRequest(
+                profile=profile, coverage_file=root / ".balamut/cov", targets=("tests/test_rates.py",), workers=1
+            ),
+            isolation=NoIsolation(),
+        )
+    finally:
+        os.chdir(previous)
+    assert result.returncode == 0, result.detail
+    cov = load_coverage_map(result.coverage_file)
+    assert cov.tests_covering("src/pkg/rates.py", 6) == {
+        "tests/test_rates.py::test_warm_cache",
+        "tests/test_rates.py::test_price",
+    }
+
+
+@pytest.mark.daemon
+def test_real_forkserver_run_lets_a_test_start_a_process_pool(tmp_path: Path) -> None:
+    # pytest-fast workers are daemonic processes, and multiprocessing refuses to start children from one.
+    root = make_project(
+        tmp_path / "proj",
+        {
+            "tests/test_pool.py": (
+                "from multiprocessing import Pool\n\nfrom pkg.calc import is_adult\n\n\n"
+                "def test_pool():\n"
+                "    with Pool(2) as pool:\n"
+                "        assert pool.map(abs, [-1, -2]) == [1, 2]\n"
+                "    assert is_adult(30)\n"
+            ),
+        },
+    )
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    profile = load_profile(root)
+    previous = Path.cwd()
+    os.chdir(root)
+    try:
+        result = measure_coverage(
+            MeasureRequest(
+                profile=profile, coverage_file=root / ".balamut/cov", targets=("tests/test_pool.py",), workers=1
+            ),
+            isolation=NoIsolation(),
+        )
+    finally:
+        os.chdir(previous)
+    assert result.returncode == 0, result.detail
+    assert load_coverage_map(result.coverage_file).tests_covering("src/pkg/calc.py", 10) == {
+        "tests/test_pool.py::test_pool"
+    }
+
+
+@pytest.mark.daemon
+def test_real_forkserver_run_survives_a_project_that_errors_on_warnings(tmp_path: Path) -> None:
+    # Under `filterwarnings = error` the preload's and the plugins' import warnings, and the empty shard of a worker
+    # left without a test (four workers, three tests), must not kill the forkserver or a worker.
+    root = make_project(tmp_path / "proj", pytest_ini='filterwarnings = ["error"]')
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    profile = load_profile(root)
+    previous = Path.cwd()
+    os.chdir(root)
+    try:
+        result = measure_coverage(
+            MeasureRequest(profile=profile, coverage_file=root / ".balamut/cov", workers=4), isolation=NoIsolation()
+        )
+    finally:
+        os.chdir(previous)
+    assert result.returncode == 0, result.detail
+    cov = load_coverage_map(result.coverage_file)
+    assert cov.tests_covering("src/pkg/calc.py", 3) == {"tests/test_calc.py::test_clamp_low"}
+
+
+def test_measurement_addopts_filter_the_import_warnings_of_the_preload_and_the_plugins() -> None:
+    assert daemon.PRELOAD_REWRITE_WARNING_FILTER in measure._PLUGINS
+    assert daemon.rewrite_warning_filter("balamut.coverage.failures") in measure._PLUGINS
+
+
+def test_generated_coverage_config_disables_the_empty_shard_warning(tmp_path: Path) -> None:
+    assert "disable_warnings = no-data-collected" in measure.coverage_config(_profile(tmp_path))
 
 
 # --- module-level exit-code constants ---

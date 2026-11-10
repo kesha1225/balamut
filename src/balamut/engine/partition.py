@@ -47,6 +47,21 @@ class CoverageLike(Protocol):
     def files_covered_by(self, test_ids: set[str], /) -> AbstractSet[str]: ...
 
 
+def covering_tests(cov: CoverageLike, mutant: Mutant) -> set[str]:
+    """The tests covering any line of the edit, ``lineno`` through ``site_end_lineno``.
+
+    The first line of a multi-line edit can carry no bytecode: CPython 3.14 attributes ``if not (`` to the lines of
+    the condition inside the parentheses, so that line never appears in coverage. A default-argument mutant
+    (``site_lineno`` differs from ``lineno``) is selected by its ``lineno`` alone: its edit sits on the ``def`` line,
+    which runs at import time, and the first body line is what every call reaches."""
+    if mutant.site_lineno != mutant.lineno:
+        return set(cov.tests_covering(mutant.path, mutant.lineno))
+    covering: set[str] = set()
+    for line in range(mutant.lineno, mutant.site_end_lineno + 1):
+        covering |= cov.tests_covering(mutant.path, line)
+    return covering
+
+
 @dataclass(frozen=True, slots=True)
 class Work:
     index: int
@@ -141,7 +156,7 @@ def partition(
                 oracle_nodeid(collect_file, identity["qualname"]), collected_test_nodeids
             )
         else:
-            covering = cov.tests_covering(mutant.path, mutant.lineno)
+            covering = covering_tests(cov, mutant)
             if not covering:
                 prefilled[index] = MutantResult(mutant, MutantStatus.NO_COVERAGE, 0, no_coverage_key(mutant))
                 if store is not None:

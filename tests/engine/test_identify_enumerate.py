@@ -43,18 +43,18 @@ def test_identify_nested_function_targets_enclosing_toplevel() -> None:
     assert found["qualname"] == "outer"
 
 
-def test_identify_records_exact_site_columns_for_touch_monitor() -> None:
+def test_identify_records_exact_site_start_for_touch_monitor() -> None:
     src = "def outer(value):\n    return (lambda: 1, value + 1)\n"
     mutant = next(m for m in enumerate_mutants("t.py", src) if m.operator == "lang:binop:Add->Sub")
     found = identify.identify(mutant, src, module="t")
     assert found is not None
     line_start = src.encode("utf-8").rfind(b"\n", 0, mutant.start_byte) + 1
 
+    assert found["spec"].get("target_lineno") == mutant.lineno
     assert found["spec"].get("target_col") == mutant.start_byte - line_start
-    assert found["spec"].get("target_end_col") == mutant.end_byte - line_start
 
 
-def test_identify_records_exact_multiline_site_span_for_touch_monitor() -> None:
+def test_identify_records_the_start_of_a_multiline_site_for_touch_monitor() -> None:
     src = "def target(values):\n    return sum(\n        values,\n    )\n"
     mutant = next(
         m for m in enumerate_mutants("t.py", src) if m.operator == "lang:return:None" and m.site_end_lineno > m.lineno
@@ -63,12 +63,9 @@ def test_identify_records_exact_multiline_site_span_for_touch_monitor() -> None:
     found = identify.identify(mutant, src, module="t")
 
     assert found is not None
-    source_bytes = src.encode("utf-8")
-    start_line = source_bytes.rfind(b"\n", 0, mutant.start_byte) + 1
-    end_line = source_bytes.rfind(b"\n", 0, mutant.end_byte) + 1
+    start_line = src.encode("utf-8").rfind(b"\n", 0, mutant.start_byte) + 1
+    assert found["spec"].get("target_lineno") == mutant.lineno
     assert found["spec"].get("target_col") == mutant.start_byte - start_line
-    assert found["spec"].get("target_end_lineno") == mutant.site_end_lineno
-    assert found["spec"].get("target_end_col") == mutant.end_byte - end_line
 
 
 def test_identify_reuses_function_text_within_campaign(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -389,9 +386,7 @@ def test_identify_accounts_for_a_leading_blank_line() -> None:
     assert found is not None
     source_bytes = src.encode("utf-8")
     line_start = source_bytes.rfind(b"\n", 0, mutant.start_byte) + 1
-    end_line_start = source_bytes.rfind(b"\n", 0, mutant.end_byte) + 1
     assert found["spec"].get("target_col") == mutant.start_byte - line_start
-    assert found["spec"].get("target_end_col") == mutant.end_byte - end_line_start
 
 
 def test_identify_records_the_function_start_byte_offset() -> None:

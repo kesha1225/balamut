@@ -6,16 +6,25 @@ every test (setup, call and teardown included) and saves its coverage and cost s
 The C tracer (``COVERAGE_CORE=ctrace``) is mandatory: the ``sys.monitoring`` core disables a line event after it
 first fires, so with dynamic contexts a line would be recorded only under the first test that ran it. The map
 from line to tests would be incomplete, real killers would never be selected, and mutants would falsely survive.
+
+The same holds for the body of a measured function under ``@lru_cache``: it runs only on a cache miss, so a value
+cached by one test hides the body from every later test of the worker. Each worker therefore clears the caches of
+the measured source before every test, as the mutation run clears the target's cache when it applies a mutant.
 """
 
 from __future__ import annotations
 
+import inspect
 import math
+import multiprocessing
 import os
 import re
+import sys
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypedDict
+from types import CodeType
+from typing import Any, Protocol, TypedDict, cast
 
 import pytest
 from _pytest.config import Config
@@ -25,6 +34,7 @@ from coverage.exceptions import CoverageException
 
 from balamut.coverage.costs import CostMap, costs_valid, read_costs, write_costs
 from balamut.coverage.failures import FAILURE_FILE_ENV, WORKER_KEY, worker_key
+from balamut.runtime.inmemory import LRU_CACHE_WRAPPER, descriptor_target
 
 COVERAGE_FILE_ENV = "BALAMUT_COVERAGE_FILE"
 COVERAGE_CONFIG_ENV = "BALAMUT_COVERAGE_CONFIG"
@@ -45,6 +55,7 @@ class _WorkerCoverageState:
     coverage: Coverage
     suffix: str
     cost_file: Path
+    cache_clears: tuple[Callable[[], None], ...]
     costs: CostMap = field(default_factory=dict[str, float])
 
 
@@ -80,7 +91,70 @@ def pytest_fast_configure_worker(config: Config, workerid: str) -> None:
         coverage=instance,
         suffix=suffix,
         cost_file=Path(raw_costs),
+        cache_clears=source_cache_clears(_source_roots(instance)),
     )
+
+
+def _source_roots(instance: Coverage) -> tuple[Path, ...]:
+    """The measured source directories of the coverage configuration, relative to the project root (the cwd)."""
+    raw = instance.get_option("run:source")
+    if not isinstance(raw, list):
+        return ()
+    return tuple(Path(root).resolve() for root in raw)
+
+
+class _CacheWrapper(Protocol):
+    @property
+    def __wrapped__(self) -> Callable[..., object]: ...
+
+    def cache_clear(self) -> None: ...
+
+
+def source_cache_clears(roots: tuple[Path, ...]) -> tuple[Callable[[], None], ...]:
+    """The ``cache_clear`` of every ``@lru_cache`` function defined under ``roots``.
+
+    Called once per worker, after the fork: collection has imported the project. The wrappers are found in the
+    namespaces of the imported measured modules and of the classes they define. ``gc`` cannot find them: pytest-fast
+    freezes the collected heap before the fork, and ``gc.get_objects`` skips frozen objects. A wrapper a measured
+    module imports from elsewhere stays warm: no measured line hides behind it, and clearing a library cache before
+    every test only costs time."""
+    verdicts: dict[str, bool] = {}
+
+    def measured(filename: str) -> bool:
+        if filename not in verdicts:
+            path = Path(filename).resolve()
+            verdicts[filename] = any(path.is_relative_to(root) for root in roots)
+        return verdicts[filename]
+
+    wrappers: dict[int, _CacheWrapper] = {}
+    classes: set[int] = set()
+
+    def walk(namespace: Mapping[str, Any], module_name: str) -> None:
+        for member in tuple(namespace.values()):
+            if isinstance(member, type):
+                if member.__module__ == module_name and id(member) not in classes:
+                    classes.add(id(member))
+                    walk(vars(member), module_name)
+                continue
+            wrapper = _cache_wrapper(member)
+            if wrapper is None:
+                continue
+            code = getattr(inspect.unwrap(wrapper.__wrapped__), "__code__", None)
+            if isinstance(code, CodeType) and measured(code.co_filename):
+                wrappers[id(wrapper)] = wrapper
+
+    for module in tuple(sys.modules.values()):
+        filename = getattr(module, "__file__", None)
+        if isinstance(filename, str) and measured(filename):
+            walk(vars(module), module.__name__)
+    return tuple(wrapper.cache_clear for wrapper in wrappers.values())
+
+
+def _cache_wrapper(member: Any) -> _CacheWrapper | None:
+    """The ``@lru_cache`` wrapper a namespace member binds: itself, a property getter, a static or class method."""
+    target = descriptor_target(member)
+    # The wrapper's type parameter (the cached function's result) is unknown here and irrelevant to the protocol.
+    return cast("_CacheWrapper", target) if isinstance(target, LRU_CACHE_WRAPPER) else None
 
 
 # The environment keys this plugin owns: read at worker startup into module state, then removed
@@ -109,12 +183,18 @@ def scrub_worker_env() -> None:
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_protocol(item: Item) -> None:
-    """Assign the node id to the whole setup/call/teardown protocol of the current test, and make
-    the environment clean for whatever the test itself spawns."""
+    """Assign the node id to the whole setup/call/teardown protocol of the current test, start it with cold caches
+    of the measured source, and make the environment clean for whatever the test itself spawns."""
     scrub_worker_env()
+    # pytest-fast starts its workers with ``daemon=True``, and multiprocessing refuses to start a child from a
+    # daemonic process (a test's ``multiprocessing.Pool``). The flag changes only this process's own view: the
+    # controller still terminates the worker as a daemon, and the worker leaves through ``os._exit``.
+    multiprocessing.current_process().daemon = False
     state = item.config.stash.get(_WORKER_STATE, None)
     if state is not None:
         state.coverage.switch_context(item.nodeid)
+        for cache_clear in state.cache_clears:
+            cache_clear()
 
 
 def pytest_fast_annotate_result(item: Item, result: WorkerRunResult) -> None:

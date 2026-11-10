@@ -44,6 +44,7 @@ from balamut.runtime.plugin import (
 
 __all__ = [
     "COLLECTION_FILE_LIMIT",
+    "PRELOAD_REWRITE_WARNING_FILTER",
     "CompactResult",
     "CostMap",
     "Daemon",
@@ -61,6 +62,7 @@ __all__ = [
     "process_failure_suffix",
     "request",
     "respawn_daemon",
+    "rewrite_warning_filter",
     "run_subset",
     "run_subset_guarded",
     "shutdown_pool",
@@ -92,6 +94,20 @@ _HANG_WARN_FRACTION = 0.75
 # Daemons collect only the files of the campaign's covering tests. Above the limit the whole suite is collected:
 # the paths travel in PYTEST_ADDOPTS, and an environment variable has a size ceiling.
 COLLECTION_FILE_LIMIT = 400
+
+
+def rewrite_warning_filter(module: str) -> str:
+    """PYTEST_ADDOPTS fragment ignoring pytest's warning that the plugin ``module`` was imported before pytest could
+    rewrite its asserts.
+
+    A project's ``filterwarnings = error`` turns that configure-time warning into an exception that kills the
+    forkserver. A command-line filter takes precedence over the ini ones, and the message pins exactly that module."""
+    message = f"Module already imported so cannot be rewritten; {module}"
+    return shlex.join(["-W", f"ignore:{message}:pytest.PytestAssertRewriteWarning"])
+
+
+# The forkserver preload imports ``pytest_fast`` before pytest configures: every pytest-fast run carries this filter.
+PRELOAD_REWRITE_WARNING_FILTER = rewrite_warning_filter("pytest_fast")
 
 
 class DaemonProcess(Protocol):
@@ -451,9 +467,14 @@ def campaign_addopts(base: str, covering: Iterable[str], *, hang_dump_after: flo
 
     The paths travel in the environment, which pytest-fast fingerprints: the client must hold the same addopts as
     the daemons, or every request is answered stale. ``faulthandler_timeout`` makes pytest dump the stacks of all
-    threads into the daemon log when a test runs past the threshold, so a hang leaves a trace."""
+    threads into the daemon log when a test runs past the threshold, so a hang leaves a trace. The preload warning
+    filter keeps the forkserver alive under ``filterwarnings = error``."""
     files = sorted({nodeid.partition("::")[0] for nodeid in covering})
-    parts = [base.strip(), f"-o faulthandler_timeout={math.ceil(hang_dump_after)}"]
+    parts = [
+        base.strip(),
+        PRELOAD_REWRITE_WARNING_FILTER,
+        f"-o faulthandler_timeout={math.ceil(hang_dump_after)}",
+    ]
     if files and len(files) <= COLLECTION_FILE_LIMIT:
         parts.append(shlex.join(files))
     return " ".join(part for part in parts if part)

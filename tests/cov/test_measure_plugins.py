@@ -7,16 +7,19 @@ A measurement runs one pytest-fast process per isolation slot; each forked worke
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import sys
 import types
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from _pytest.config import Config
 from _pytest.nodes import Item
 from _pytest.reports import CollectReport, TestReport
-from coverage import CoverageData
+from coverage import Coverage, CoverageData
 
 from balamut.coverage import costs, failures, fast_plugin
 from balamut.coverage.costs import read_costs, write_costs
@@ -312,6 +315,10 @@ class _FakeCoverage:
         self.kwargs = kwargs
         self.events: list[str] = []
 
+    def get_option(self, name: str) -> list[str] | None:
+        assert name == "run:source"
+        return None
+
     def start(self) -> None:
         self.events.append("start")
 
@@ -364,6 +371,111 @@ def test_worker_hooks_capture_context_cost_and_flush(tmp_path: Path, monkeypatch
     assert created[0].kwargs["config_file"] == "coverage.ini"
     assert created[0].events == ["start", "context:tests/x_test.py::test_x", "stop", "save"]
     assert read_costs(tmp_path / "coverage.costs.json.s3gw2.123.json") == {"tests/x_test.py::test_x": 0.25}
+
+
+@pytest.fixture
+def load_module(monkeypatch: pytest.MonkeyPatch) -> Callable[[Path, str], types.ModuleType]:
+    """Import a source file as a module registered in ``sys.modules`` for the duration of the test."""
+
+    def load(path: Path, source: str) -> types.ModuleType:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+        name = f"bm_cache_{path.parent.name}_{path.stem}"
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None
+        assert spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, name, module)
+        spec.loader.exec_module(module)
+        return module
+
+    return load
+
+
+_CACHED_SOURCE = """\
+from functools import cache, lru_cache
+
+
+@lru_cache
+def rate(x):
+    return x
+
+
+class Tariff:
+    @staticmethod
+    @cache
+    def base():
+        return 1
+
+    @classmethod
+    @cache
+    def scale(cls):
+        return 2
+
+    @property
+    @cache
+    def fee(self):
+        return 3
+
+    class Inner:
+        @cache
+        def nested(self):
+            return 4
+"""
+
+
+def _cache_sizes(module: types.ModuleType) -> tuple[int, ...]:
+    tariff: Any = module.Tariff
+    fee = cast("property", vars(tariff)["fee"])
+    wrappers: tuple[Any, ...] = (module.rate, tariff.base, tariff.scale, fee.fget, tariff.Inner.nested)
+    return tuple(int(wrapper.cache_info().currsize) for wrapper in wrappers)
+
+
+def test_source_cache_clears_cover_the_functions_and_class_members_of_the_measured_source(
+    tmp_path: Path, load_module: Callable[[Path, str], types.ModuleType]
+) -> None:
+    # The measured module also binds a cached function of an unmeasured one: that cache stays warm.
+    outside = load_module(tmp_path / "lib/rates.py", _CACHED_SOURCE)
+    inside = load_module(
+        tmp_path / "src/pkg/rates.py", f"from bm_cache_lib_rates import rate as lib_rate\n{_CACHED_SOURCE}"
+    )
+    for module in (inside, outside):
+        module.rate(1)
+        module.Tariff.base()
+        module.Tariff.scale()
+        _ = module.Tariff().fee
+        module.Tariff.Inner().nested()
+
+    clears = fast_plugin.source_cache_clears(((tmp_path / "src").resolve(),))
+    for cache_clear in clears:
+        cache_clear()
+
+    assert len(clears) == 5
+    assert _cache_sizes(inside) == (0, 0, 0, 0, 0)
+    assert _cache_sizes(outside) == (1, 1, 1, 1, 1)
+
+
+def test_runtest_protocol_clears_the_source_caches_before_each_test(
+    tmp_path: Path, load_module: Callable[[Path, str], types.ModuleType]
+) -> None:
+    module = load_module(
+        tmp_path / "src/pkg/rates.py", "from functools import cache\n\n@cache\ndef rate():\n    return 1\n"
+    )
+    module.rate()
+    fake = _FakeCoverage()
+    state = fast_plugin._WorkerCoverageState(
+        coverage=cast("Coverage", fake),
+        suffix="s0gw0.1",
+        cost_file=tmp_path / "costs.json",
+        cache_clears=fast_plugin.source_cache_clears(((tmp_path / "src").resolve(),)),
+    )
+    config = cast("Config", SimpleNamespace(stash={fast_plugin._WORKER_STATE: state}))
+    item = cast("Item", SimpleNamespace(nodeid="tests/test_rates.py::test_rate", config=config))
+
+    fast_plugin.pytest_runtest_protocol(item)
+
+    assert module.rate.cache_info().currsize == 0
+    assert fake.events == ["context:tests/test_rates.py::test_rate"]
 
 
 def test_combine_worker_artifacts_merges_contexts_and_costs(tmp_path: Path) -> None:

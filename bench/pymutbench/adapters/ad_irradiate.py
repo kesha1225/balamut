@@ -92,6 +92,17 @@ def _target(tree: ast.Module, cls: str | None, name: str) -> ast.FunctionDef | a
     return next((n for n in body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name == name), None)
 
 
+def splice(lines: list[str], target: ast.FunctionDef | ast.AsyncFunctionDef, base: int, text: str) -> str:
+    """The module ``lines`` with the ``def`` of ``target`` (decorators kept) replaced by a variant's ``text``,
+    renamed already: the variant's lines after the first lose the variant's own indentation ``base`` and take the
+    indentation of the original ``def`` line, characters included, so a tab-indented class keeps its tabs."""
+    indent = lines[target.lineno - 1][: target.col_offset]
+    body = text.split("\n")
+    body = [body[0].lstrip(), *(indent + line[base:] if line.strip() else "" for line in body[1:])]
+    start, end = target.lineno - 1, target.end_lineno or target.lineno
+    return "".join(lines[:start]) + indent + "\n".join(body) + "\n" + "".join(lines[end:])
+
+
 def _renamed_dump(node: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> str:
     clone = ast.parse(ast.unparse(node)).body[0]
     clone.name = name  # type: ignore[attr-defined]
@@ -162,12 +173,7 @@ def main() -> None:
                         continue
                     text = ast.get_source_segment(chunk, variant) or ""
                     text = re.sub(r"^((?:async\s+)?def\s+)" + re.escape(variant.name), r"\g<1>" + name, text, count=1)
-                    indent = " " * target.col_offset
-                    body = text.split("\n")
-                    base = variant.col_offset  # the variant's own indentation, shared by every line after the first
-                    body = [body[0].lstrip(), *(indent + line[base:] if line.strip() else "" for line in body[1:])]
-                    start, end = target.lineno - 1, target.end_lineno or target.lineno
-                    spliced = "".join(lines[:start]) + indent + "\n".join(body) + "\n" + "".join(lines[end:])
+                    spliced = splice(lines, target, variant.col_offset, text)
                     try:
                         check = _target(ast.parse(spliced), cls, name)
                     except SyntaxError:

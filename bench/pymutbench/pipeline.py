@@ -299,14 +299,16 @@ def prefix(names: list[str], jobs: int, parallel: int, tools: tuple[str, ...] = 
 
 
 def _parent_judged(directory: Path) -> bool:
-    """Every counterpart of the parent union has a verdict, or the parent baseline is ineligible."""
+    """Every counterpart of the parent union has a verdict, or the parent baseline is ineligible: a historical
+    baseline left without its end record only after BASELINE_ATTEMPTS runs, as on the fixed side (``_complete``)."""
     union = {row["aid"] for row in load_jsonl(directory / "parent.union.jsonl")}
     if not union:
         return True
     rows = load_jsonl(directory / "oracle.parent.jsonl")
     metas = [row for row in rows if row.get("kind") == "meta"]
     if metas and "ineligible" in metas[-1]:
-        return True
+        unfinished = sum(1 for meta in metas if str(meta.get("ineligible", "")).startswith(UNFINISHED_BASELINE))
+        return not (str(metas[-1]["ineligible"]).startswith(UNFINISHED_BASELINE) and unfinished < BASELINE_ATTEMPTS)
     return union <= {row["aid"] for row in rows if "aid" in row}
 
 

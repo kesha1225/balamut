@@ -9,10 +9,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pymutbench" / "adapters"))
 
-from ad_irradiate import _physical_lines, _target, splice  # noqa: E402
+from ad_irradiate import _physical_lines, _target, splice
 
-TABS = "def add(a, b):\n\tif a > b:\n\t\treturn a - b\n\treturn a + b\n\n\nclass Box:\n\tdef scaled(self, factor):\n" \
-       "\t\ttotal = self.value * factor\n\t\treturn total\n"
+TABS = (
+    "def add(a, b):\n\tif a > b:\n\t\treturn a - b\n\treturn a + b\n\n\nclass Box:\n\tdef scaled(self, factor):\n"
+    "\t\ttotal = self.value * factor\n\t\treturn total\n"
+)
 SPACES = TABS.replace("\t", "    ")
 
 
@@ -35,7 +37,9 @@ class SpliceTest(unittest.TestCase):
         self.assertEqual(ast.dump(mutated, include_attributes=False), ast.dump(expected, include_attributes=False))
         # Every other statement of the module is kept as it was.
         others = [ast.dump(n) for n in ast.parse(spliced).body if getattr(n, "name", None) not in {name, cls}]
-        self.assertEqual(others, [ast.dump(n) for n in ast.parse(source).body if getattr(n, "name", None) not in {name, cls}])
+        self.assertEqual(
+            others, [ast.dump(n) for n in ast.parse(source).body if getattr(n, "name", None) not in {name, cls}]
+        )
 
     def test_method_of_a_tab_indented_class(self) -> None:
         self.check(TABS, "Box", "scaled", "total = self.value * factor", "total = self.value / factor")

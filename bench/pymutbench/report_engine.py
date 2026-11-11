@@ -33,6 +33,7 @@ import argparse
 import json
 import math
 import re
+import statistics
 import sys
 from collections import Counter
 from pathlib import Path
@@ -40,19 +41,22 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pymutbench import svg  # noqa: E402
-from pymutbench.native import VENV  # noqa: E402
-from pymutbench.orchestrate import BENCH, OUT  # noqa: E402
-from pymutbench.pipeline import ENGINE_SUBJECTS, NATIVE_TOOLS  # noqa: E402
+from pymutbench import svg
+from pymutbench.fingerprint import oracle_semantics
+from pymutbench.native import VENV
+from pymutbench.orchestrate import BENCH, OUT, trap_module
+from pymutbench.pipeline import ENGINE_SUBJECTS, NATIVE_TOOLS
 
 KILLED = {"killed"}
 SURVIVED = {"survived"}
-FOCUS = "balamut"
+ENGINE_MEMORY_MIB = 3072  # a campaign container's memory limit (PMB_ENGINE_MEMORY=3g): a peak at it measures a test
 VERDICTS = {"killed", "survived", "timeout", "no_coverage"}  # native verdicts; "skipped" and "error" are none
 
 
 def _jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()] if path.exists() else []
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def _count_only(native: dict[str, Any]) -> Counter[str]:
@@ -122,9 +126,16 @@ def stability(first: dict[str, Any], second: dict[str, Any]) -> dict[str, int]:
 def _no_result(state: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
     """A planned campaign without a result: ``failed`` (it ran and left no report) or ``missing`` (never run)."""
     return {"result": state, "reason": (detail or {}).get("reason"), "detail": detail or {}, "native_mutants": 0,
-            "mapped": 0, "wall_seconds": [None, None],
-            "cpu_seconds": [None, None], "native_verdicts": {}, "agreement": {"counts": {}, "total": 0},
-            "stability": None, "control_run": None, "memory": {}}
+            "mapped": 0, "wall_seconds": [None],
+            "cpu_seconds": [None], "native_verdicts": {}, "agreement": {"counts": {}, "total": 0},
+            "stability": [], "control_run": None, "memory": {}, "cpus": [None, None], "tasks_peak": None}
+
+
+def _repeats(subject_dir: Path, tool: str) -> list[Path]:
+    """The reports of a campaign's repetitions (``<tool>.r2.json`` on), in order."""
+    found = [p for p in subject_dir.glob(f"{tool}.r*.json") if re.fullmatch(rf"{re.escape(tool)}\.r(\d+)\.json", p.name)
+             and p.name != f"{tool}.r1.json"]
+    return sorted(found, key=lambda p: int(p.name.removeprefix(f"{tool}.r").removesuffix(".json")))
 
 
 def _campaign(subject_dir: Path, tool: str, problems: list[str], where: str) -> dict[str, Any] | None:
@@ -172,13 +183,14 @@ def _last_command(record: dict[str, Any]) -> str:
 
 
 def _oracle_fingerprint(meta: dict[str, Any], where: str, problems: list[str], seen: set[str]) -> None:
-    """Every reference run of a track must come from one oracle code: a run without a fingerprint is stale."""
+    """Every reference run of a track must have one verdict semantics (``fingerprint.oracle_semantics``): a run
+    without a code fingerprint predates the record format and is stale."""
     if not meta:
         return
     if not meta.get("fingerprint"):
         problems.append(f"{where}: reference oracle run without a code fingerprint (stale: judge it again)")
     else:
-        seen.add(meta["fingerprint"])
+        seen.add(oracle_semantics(meta))
 
 
 def engine() -> tuple[dict[str, Any], list[str]]:
@@ -204,8 +216,7 @@ def engine() -> tuple[dict[str, Any], list[str]]:
                 failure = _failure(subject_dir, tool)
                 subject[tool] = _no_result("missing" if failure is None else "failed", failure)
                 continue
-            second_path = subject_dir / f"{tool}.r2.json"
-            second = json.loads(second_path.read_text(encoding="utf-8")) if second_path.exists() else None
+            repeats = [json.loads(path.read_text(encoding="utf-8")) for path in _repeats(subject_dir, tool)]
             native = [r for r in first.get("mutants", []) if r.get("native_id") != "<counts>"]
             verdicts = native_verdicts(first)
             agreement = compare(first, oracle)
@@ -215,19 +226,22 @@ def engine() -> tuple[dict[str, Any], list[str]]:
                 "reason": None if judged else _last_command(first),
                 "native_mutants": agreement["total"],
                 "mapped": sum(1 for r in native if r.get("aid")),
-                "wall_seconds": [first.get("wall_seconds"), second.get("wall_seconds") if second else None],
-                "cpu_seconds": [first.get("cpu_seconds"), second.get("cpu_seconds") if second else None],
+                "wall_seconds": [first.get("wall_seconds"), *(r.get("wall_seconds") for r in repeats)],
+                "cpu_seconds": [first.get("cpu_seconds"), *(r.get("cpu_seconds") for r in repeats)],
                 "memory": {k: first.get(k) for k in ("largest_process_rss_mib", "cgroup_peak_mib", "cgroup_peak_scope",
                                                      "cgroup_peak_before_campaign_mib")},
                 "cpus": [first.get("cpus_usable"), first.get("cpus_visible")],
+                "tasks_peak": max((r.get("tasks_peak") or 0 for r in (first, *repeats)), default=0) or None,
+                "memory_limit_reached": any((r.get("cgroup_peak_mib") or 0) >= ENGINE_MEMORY_MIB - 1
+                                            for r in (first, *repeats)),
                 "native_verdicts": verdicts,
                 "agreement": agreement,
-                "stability": stability(first, second) if second else None,
+                "stability": [stability(first, r) for r in repeats],
                 "control_run": first.get("control_run"),
             }
         report[name] = subject
     if len(fingerprints) > 1:
-        problems.append(f"mixed oracle fingerprints {sorted(fingerprints)}")
+        problems.append(f"mixed oracle semantics {sorted(fingerprints)}")
     return report, problems
 
 
@@ -247,7 +261,7 @@ def conformance() -> tuple[dict[str, Any], list[str]]:
         oracle_rows = {r["aid"]: r for r in rows if "aid" in r}
         _oracle_fingerprint(next((r for r in rows if r.get("kind") == "meta"), {}), fixture, problems, fingerprints)
         union = {r["aid"]: r for r in _jsonl(out_dir / "union.r1.jsonl")}
-        module = next((BENCH / "conformance" / fixture / "src" / fixture).glob("[!_]*.py"))
+        module = trap_module(fixture)
         original = module.read_bytes()
         trap: dict[str, dict[str, Any]] = {}  # aid -> the rule it hits
         for aid, art in union.items():
@@ -296,7 +310,7 @@ def conformance() -> tuple[dict[str, Any], list[str]]:
                                     "agreement": compare(data, oracle_rows)["counts"]}
         report[fixture] = fixture_report
     if len(fingerprints) > 1:
-        problems.append(f"mixed oracle fingerprints {sorted(fingerprints)}")
+        problems.append(f"mixed oracle semantics {sorted(fingerprints)}")
     return report, problems
 
 
@@ -315,17 +329,20 @@ COMPARABLE = ("agree: killed", "unconfirmed kill", "agree: survived", "missed ki
 
 def engine_totals(report: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], list[str]]:
     """Per tool, over the engine subjects: verdict comparison counts, native mutants, the subjects its campaign
-    ran on, the largest memory peak, and first-run wall time summed over the common subjects (those on which every
-    planned tool's campaign ran), which are returned too: a campaign that judged nothing, or left no result, must
-    not make its tool look fast. CPU time stays out of the comparison: it is the resource usage of the reaped
-    descendants of the campaign's commands, which misses every worker no waited-for process reaps."""
+    ran on, the largest memory peak, and wall time summed over the common subjects (those on which every planned
+    tool's campaign ran), which are returned too: a campaign that judged nothing, or left no result, must not make
+    its tool look fast. The wall time of a campaign is the median over its runs, with the smallest and the largest
+    run beside it. CPU time stays out of the comparison: it is the resource usage of the reaped descendants of the
+    campaign's commands, which misses every worker no waited-for process reaps."""
     common = [subject for subject, data in report.items() if all(_ran(data[t]) for t in NATIVE_TOOLS)]
     totals: dict[str, dict[str, Any]] = {}
     for subject, data in report.items():
         for tool in NATIVE_TOOLS:
             entry = data[tool]
-            total = totals.setdefault(tool, {"counts": Counter(), "wall": math.nan if not common else 0.0,
-                                             "mutants": 0, "ran": [], "peak_mib": 0.0, "peak_scopes": set()})
+            zero = math.nan if not common else 0.0
+            total = totals.setdefault(tool, {"counts": Counter(), "wall": zero, "wall_low": zero, "wall_high": zero,
+                                             "runs": 0, "mutants": 0, "ran": [], "peak_mib": 0.0,
+                                             "peak_scopes": set(), "memory_limit": [], "cpus": set(), "tasks": 0})
             total["counts"].update(entry["agreement"]["counts"])
             total["mutants"] += entry["native_mutants"]
             memory = entry.get("memory") or {}
@@ -334,8 +351,17 @@ def engine_totals(report: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], li
                 total["peak_scopes"].add(memory.get("cgroup_peak_scope"))
             if _ran(entry):
                 total["ran"].append(subject)
+            if entry.get("memory_limit_reached"):
+                total["memory_limit"].append(subject)
+            if entry.get("cpus") and entry["cpus"][0] is not None:
+                total["cpus"].add(tuple(entry["cpus"]))
+            total["tasks"] = max(total["tasks"], entry.get("tasks_peak") or 0)
             if subject in common:
-                total["wall"] += entry["wall_seconds"][0] or 0.0
+                walls = sorted(w for w in entry["wall_seconds"] if w is not None)
+                total["wall"] += statistics.median(walls)
+                total["wall_low"] += walls[0]
+                total["wall_high"] += walls[-1]
+                total["runs"] = max(total["runs"], len(walls))
     for total in totals.values():
         counts = total["counts"]
         total["false_kill"] = _ratio(counts, "unconfirmed kill", "agree: killed")
@@ -349,8 +375,13 @@ def engine_table(report: dict[str, Any]) -> str:
     """The table twin of the engine figures, with every planned campaign's outcome per subject."""
     totals, common = engine_totals(report)
     scopes = sorted({s for v in totals.values() for s in v["peak_scopes"] if s}) or ["n/a"]
-    lines = [(f"Wall time: first run, summed over the projects on which every campaign ran "
-              f"({', '.join(common) or 'none'}); per campaign in the second table. False kills: unconfirmed kills / "
+    lines = [(f"Wall time: the median over a campaign's runs (smallest and largest in brackets), summed over the "
+              f"projects on which every campaign ran ({', '.join(common) or 'none'}); per campaign and first run in "
+              "the second table. CPUs: those the container may use against those the tool's process sees "
+              "(`os.cpu_count()`), from which tools size their parallelism. Peak tasks: the most processes and threads "
+              "the container held (cgroup pids.peak, recorded from the repeated runs on). A peak memory at the "
+              "container's 3 GiB limit measures a test that allocates without bound, not the tool. "
+              "False kills: unconfirmed kills / "
               "(agree: killed + unconfirmed kills); false survivors: missed kills / (agree: survived + missed kills); "
               "not comparable: every other native mutant (unmapped, no reference verdict, the oracle's non-verdicts, "
               "the tool's timeouts, errors, skips and no-coverage verdicts, verdicts the tool reports only as a "
@@ -360,8 +391,9 @@ def engine_table(report: dict[str, Any]) -> str:
               "raises it to the container's memory limit. The CPU time in "
               "engine_track.json counts only the processes a campaign waited for."), "",
              ("| tool | projects run | native mutants | agree: killed | unconfirmed kills | agree: survived | "
-              "missed kills | not comparable | false kills | false survivors | wall time | peak memory |"),
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+              "missed kills | not comparable | false kills | false survivors | wall time | CPUs usable of visible "
+              "| peak tasks | peak memory |"),
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
     def share(value: float) -> str:
         return "n/a" if math.isnan(value) else f"{100 * value:.1f}%"
@@ -369,13 +401,37 @@ def engine_table(report: dict[str, Any]) -> str:
     def seconds(value: float) -> str:
         return "n/a" if math.isnan(value) else f"{value:.0f} s"
 
-    for tool in sorted(totals, key=lambda t: (t != FOCUS, t)):
+    for tool in sorted(totals):
         v = totals[tool]
         c = v["counts"]
+        wall = seconds(v["wall"]) + (f" ({v['wall_low']:.0f}–{v['wall_high']:.0f}, {v['runs']} runs)"
+                                     if v["runs"] > 1 else "")
+        cpus = ", ".join(f"{usable} of {visible}" for usable, visible in sorted(v["cpus"])) or "n/a"
+        limit = f" (limit reached: {', '.join(v['memory_limit'])})" if v["memory_limit"] else ""
         lines.append(f"| {tool} | {len(v['ran'])}/{len(report)} | {v['mutants']} | {c.get('agree: killed', 0)} | "
                      f"{c.get('unconfirmed kill', 0)} | {c.get('agree: survived', 0)} | {c.get('missed kill', 0)} | "
                      f"{v['not_comparable']} | {share(v['false_kill'])} | {share(v['false_survivor'])} | "
-                     f"{seconds(v['wall'])} | {v['peak_mib']:.0f} MiB |")
+                     f"{wall} | {cpus} | {v['tasks'] or 'n/a'} | {v['peak_mib']:.0f} MiB{limit} |")
+    lines += ["", "Outcomes: a campaign that ran and gave verdicts (ran), one that gave none or left no report "
+              "(did not run out of the box), and among those that ran, the ones whose comparable verdicts all agree "
+              "with the reference oracle.", "",
+              "| tool | ran, all comparable verdicts agree | ran, some disagree | did not run out of the box |",
+              "|---|---|---|---|"]
+    for tool in sorted(totals):
+        agree = [s for s, d in report.items() if _ran(d[tool]) and not _disagrees(d[tool])]
+        disagree = [s for s, d in report.items() if _ran(d[tool]) and _disagrees(d[tool])]
+        failed = [s for s, d in report.items() if not _ran(d[tool])]
+        cells = [", ".join(group) or "–" for group in (agree, disagree, failed)]
+        lines.append(f"| {tool} | {' | '.join(cells)} |")
+    stable = [(s, t, e["stability"]) for s, d in report.items() for t in NATIVE_TOOLS if (e := d[t]).get("stability")]
+    if stable:
+        lines += ["", "Repeated campaigns: per repetition, the native mutants both runs have (by file and native id) "
+                  "and how many of them changed verdict.", "",
+                  "| project | tool | runs | common mutants | changed verdict |",
+                  "|---|---|---|---|---|"]
+        for subject, tool, runs in stable:
+            lines.append(f"| {subject} | {tool} | {len(runs) + 1} | {', '.join(str(r['common']) for r in runs)} "
+                         f"| {', '.join(str(r['changed']) for r in runs)} |")
     lines += ["",
               "| project | tool | campaign | wall time | peak memory | native verdicts | comparison | control run |",
               "|---|---|---|---|---|---|---|---|"]
@@ -394,7 +450,12 @@ def engine_table(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def engine_figures(report: dict[str, Any], images: Path) -> list[str]:
+def _disagrees(entry: dict[str, Any]) -> bool:
+    counts = entry["agreement"]["counts"]
+    return bool(counts.get("unconfirmed kill") or counts.get("missed kill"))
+
+
+def engine_figures(report: dict[str, Any], images: Path, focus: str = "") -> list[str]:
     totals, common = engine_totals(report)
     subjects = len(report)
     written = []
@@ -406,12 +467,15 @@ def engine_figures(report: dict[str, Any], images: Path) -> list[str]:
          f"share of the tool's 'survived' verdicts the reference oracle kills, among comparable verdicts · "
          f"{subjects} projects at HEAD", {t: v["false_survivor"] for t, v in totals.items()}, True, ""),
         ("bench-engine-time", "Wall time of the tool's own campaign",
-         (f"sum over the projects every campaign ran on ({', '.join(common) or 'none'}), first run, 4 vCPUs · "
+         (f"{', '.join(common) or 'no project every campaign ran on'} · median of "
+          f"{max((v['runs'] for v in totals.values()), default=1)} runs, smallest to largest as whiskers, 4 vCPUs · "
           "lower is faster"),
          {t: v["wall"] for t, v in totals.items()}, False, "s"),
     ]
+    ranges = {t: (v["wall_low"], v["wall_high"]) for t, v in totals.items() if v["runs"] > 1}
     for name, title, subtitle, values, percent, unit in specs:
-        rows = [svg.Row(t, v, emphasis=t == FOCUS) for t, v in values.items()]
+        rows = [svg.Row(t, v, *(ranges.get(t, (None, None)) if name == "bench-engine-time" else (None, None)),
+                        emphasis=t == focus) for t, v in values.items()]
         known = sorted((r for r in rows if not math.isnan(r.value)), key=lambda r: r.value, reverse=percent)
         rows = known + [svg.Row(r.label, math.nan, emphasis=r.emphasis, note="no comparable verdicts" if percent
                                 else "not in every project") for r in rows if math.isnan(r.value)]
@@ -431,9 +495,9 @@ CONFORMANCE_STATUSES = [
 ]
 
 
-def conformance_figure(report: dict[str, Any], images: Path) -> list[str]:
+def conformance_figure(report: dict[str, Any], images: Path, focus: str = "") -> list[str]:
     fixtures = sorted(report)
-    tools = sorted(NATIVE_TOOLS, key=lambda t: (t != FOCUS, t))
+    tools = sorted(NATIVE_TOOLS)
     cells, notes = [], {}
     for i, tool in enumerate(tools):
         row = []
@@ -456,7 +520,7 @@ def conformance_figure(report: dict[str, Any], images: Path) -> list[str]:
         path.write_text(svg.status_matrix("Execution traps", "each project hides one trap; hand-checked expected "
                                           "verdicts for the tool's mapped mutants that hit it", tools,
                                           [f.removeprefix("cf_") for f in fixtures], cells, CONFORMANCE_STATUSES,
-                                          theme, emphasis=FOCUS, notes=notes), encoding="utf-8")
+                                          theme, emphasis=focus, notes=notes), encoding="utf-8")
         written.append(str(path))
     return written
 
@@ -467,6 +531,7 @@ def main() -> None:
     parser.add_argument("--results", required=True)
     parser.add_argument("--images", required=True)
     parser.add_argument("--preview", action="store_true", help="report the gaps instead of refusing")
+    parser.add_argument("--focus", default="", choices=("", *NATIVE_TOOLS), help="highlight one tool in the figures")
     args = parser.parse_args()
     results, images = Path(args.results), Path(args.images)
     report, problems = engine() if args.track == "engine" else conformance()
@@ -475,12 +540,12 @@ def main() -> None:
     results.mkdir(parents=True, exist_ok=True)
     images.mkdir(parents=True, exist_ok=True)
     name = "engine_track.json" if args.track == "engine" else "conformance.json"
-    (results / name).write_text(json.dumps(report, indent=1), encoding="utf-8")
+    (results / name).write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     if args.track == "engine":
         (results / "engine.md").write_text(engine_table(report), encoding="utf-8")
-        written = engine_figures(report, images)
+        written = engine_figures(report, images, args.focus)
     else:
-        written = conformance_figure(report, images)
+        written = conformance_figure(report, images, args.focus)
     for problem in problems:
         print(f"gap: {problem}")
     print(f"wrote {len(written)} figures")

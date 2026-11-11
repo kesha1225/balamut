@@ -128,7 +128,7 @@ def _no_result(state: str, detail: dict[str, Any] | None = None) -> dict[str, An
     return {"result": state, "reason": (detail or {}).get("reason"), "detail": detail or {}, "native_mutants": 0,
             "mapped": 0, "wall_seconds": [None],
             "cpu_seconds": [None], "native_verdicts": {}, "agreement": {"counts": {}, "total": 0},
-            "stability": [], "control_run": None, "memory": {}, "cpus": [None, None], "tasks_peak": None}
+            "stability": [], "control_run": None, "memory": {}, "cpus": [], "tasks_peak": None}
 
 
 def _repeats(subject_dir: Path, tool: str) -> list[Path]:
@@ -230,7 +230,9 @@ def engine() -> tuple[dict[str, Any], list[str]]:
                 "cpu_seconds": [first.get("cpu_seconds"), *(r.get("cpu_seconds") for r in repeats)],
                 "memory": {k: first.get(k) for k in ("largest_process_rss_mib", "cgroup_peak_mib", "cgroup_peak_scope",
                                                      "cgroup_peak_before_campaign_mib")},
-                "cpus": [first.get("cpus_usable"), first.get("cpus_visible")],
+                # (usable, visible) of every run: a tool sizes its default parallelism from the visible CPUs.
+                "cpus": sorted({(r.get("cpus_usable"), r.get("cpus_visible")) for r in (first, *repeats)
+                                if r.get("cpus_usable") is not None}),
                 "tasks_peak": max((r.get("tasks_peak") or 0 for r in (first, *repeats)), default=0) or None,
                 "memory_limit_reached": any((r.get("cgroup_peak_mib") or 0) >= ENGINE_MEMORY_MIB - 1
                                             for r in (first, *repeats)),
@@ -353,8 +355,7 @@ def engine_totals(report: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], li
                 total["ran"].append(subject)
             if entry.get("memory_limit_reached"):
                 total["memory_limit"].append(subject)
-            if entry.get("cpus") and entry["cpus"][0] is not None:
-                total["cpus"].add(tuple(entry["cpus"]))
+            total["cpus"].update(tuple(pair) for pair in entry.get("cpus") or [])
             total["tasks"] = max(total["tasks"], entry.get("tasks_peak") or 0)
             if subject in common:
                 walls = sorted(w for w in entry["wall_seconds"] if w is not None)

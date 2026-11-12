@@ -118,6 +118,25 @@ class FixLinesTest(unittest.TestCase):
         mutated = fixlines.transplant(self.fixed, start, end, body, BUGGY.encode(), self.hunks)
         self.assertEqual(mutated, BUGGY.replace("total += item", "total -= item").encode())
 
+    def test_transplant_of_an_inserted_line_keeps_its_own_indentation(self) -> None:
+        # Before a blank line, and before a line of the enclosing block: the line below gives no indentation.
+        for anchor, line, buggy_anchor in (
+            ("    return x + 1\n", "    return 0\n", "    return x + 1\n"),
+            ("        total += item\n", "        break\n", "        total += item\n"),
+        ):
+            start = self.fixed.index(anchor.encode()) + len(anchor)
+            mutated = fixlines.transplant(self.fixed, start, start, line, BUGGY.encode(), self.hunks)
+            self.assertEqual(mutated, BUGGY.replace(buggy_anchor, buggy_anchor + line).encode(), line)
+
+    def test_transplant_of_an_inserted_line_in_a_reindented_variant(self) -> None:
+        start = self.fixed.index(b"def k")
+        end = self.fixed.index(b"return total") + len(b"return total")
+        body = self.fixed[start:end].decode().replace("\n    ", "\n        ")
+        body = body.replace("total += item\n", "total += item\n            break\n")
+        mutated = fixlines.transplant(self.fixed, start, end, body, BUGGY.encode(), self.hunks)
+        expected = BUGGY.replace("        total += item\n", "        total += item\n        break\n")
+        self.assertEqual(mutated, expected.encode())
+
     def test_no_transplant_on_lines_the_fix_changed(self) -> None:
         for old, new in (("x * 3", "x / 3"), ("is None", "is not None")):
             start, end, replacement = self.edit(old, new)

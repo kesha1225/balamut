@@ -139,7 +139,9 @@ def transplant(
     stays as the buggy file has it (a function variant that re-indents the whole body changes only its touched
     lines here). Every run of lines the mutant changes must be lines of the fixed file outside every hunk,
     consecutive in the buggy file and equal there; the new lines take the buggy line's indentation plus their own
-    indentation relative to the run's first new line. A run that only inserts lines lands between two such lines."""
+    indentation relative to the run's first new line. A run that only inserts lines lands between two such lines,
+    which are the same bytes in both files: its lines keep their own indentation, less the indentation the mutant
+    adds to every line it keeps (a re-indented variant)."""
     first = fixed.count(b"\n", 0, start) + 1
     last = max(first, fixed.count(b"\n", 0, max(start, end - 1)) + 1)
     mutated = fixed[:start] + replacement.encode("utf-8") + fixed[end:]
@@ -149,7 +151,16 @@ def transplant(
     base = parent.split(b"\n")
     replacements: list[tuple[int, int, list[bytes]]] = []  # (buggy line index, lines replaced, new lines)
     stripped_old, stripped_new = [line.strip() for line in old], [line.strip() for line in new]
-    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, stripped_old, stripped_new, autojunk=False).get_opcodes():
+    opcodes = difflib.SequenceMatcher(None, stripped_old, stripped_new, autojunk=False).get_opcodes()
+    # The indentation the mutant adds to a kept line (old index, new index): a re-indented body shifts every line.
+    kept = [
+        (i1 + offset, j1 + offset)
+        for tag, i1, i2, j1, _j2 in opcodes
+        if tag == "equal"
+        for offset in range(i2 - i1)
+        if stripped_old[i1 + offset]
+    ]
+    for tag, i1, i2, j1, j2 in opcodes:
         if tag == "equal":
             continue
         lines = list(range(first + i1, first + i2))  # fixed lines replaced; none for a pure insertion
@@ -170,8 +181,14 @@ def transplant(
             above = to_parent_line(first + i1 - 1, file_hunks) if first + i1 > 1 else 0
             if below is None or above is None or below != above + 1 or below > len(base) + 1:
                 return None
-            anchor = base[below - 1] if below <= len(base) else b""
-            index, count = below - 1, 0
+            inserted = new[j1:j2]
+            # The nearest kept line above the insertion, else below it, gives the shift of its block.
+            near = [pair for pair in kept if pair[1] < j1][-1:] or [pair for pair in kept if pair[1] >= j2][:1]
+            shift = len(_indent(new[near[0][1]])) - len(_indent(old[near[0][0]])) if near else 0
+            if shift < 0 or any(line.strip() and len(_indent(line)) < shift for line in inserted):
+                return None
+            replacements.append((below - 1, 0, [line[shift:] if line.strip() else line for line in inserted]))
+            continue
         own = _indent(new[j1]) if j2 > j1 else b""
         lines_new = [
             _indent(anchor) + line[len(own) :] if line.strip() and line.startswith(own) else line for line in new[j1:j2]

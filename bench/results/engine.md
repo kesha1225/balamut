@@ -1,18 +1,50 @@
-Wall time: first run, summed over the projects on which every campaign ran (cachetools); per campaign in the second table. False kills: unconfirmed kills / (agree: killed + unconfirmed kills); false survivors: missed kills / (agree: survived + missed kills); not comparable: every other native mutant (unmapped, no reference verdict, the oracle's non-verdicts, the tool's timeouts, errors, skips and no-coverage verdicts, verdicts the tool reports only as a total). Peak memory: the container's memory peak in MiB (cgroup memory.peak, container lifetime (control run included)), the largest over the projects in the first table; it counts every process the campaign starts and the page cache of the files they read and write, so a mutant whose tests allocate without bound raises it to the container's memory limit. The CPU time in engine_track.json counts only the processes a campaign waited for.
+Wall time: the median over a campaign's runs (smallest and largest in brackets), summed over the projects on which every campaign ran (cachetools); per campaign and first run in the second table. CPUs: those the container may use against those the tool's process sees (`os.cpu_count()`), from which tools size their parallelism. Peak tasks: the most processes and threads the container held (cgroup pids.peak, recorded from the repeated runs on). A peak memory at the container's 3 GiB limit measures a test that allocates without bound, not the tool. False kills: unconfirmed kills / (agree: killed + unconfirmed kills); false survivors: missed kills / (agree: survived + missed kills); not comparable: every other native mutant (unmapped, no reference verdict, the oracle's non-verdicts, the tool's timeouts, errors, skips and no-coverage verdicts, verdicts the tool reports only as a total). Peak memory: the container's memory peak in MiB (cgroup memory.peak, container lifetime (control run included)), the largest over the projects in the first table; it counts every process the campaign starts and the page cache of the files they read and write, so a mutant whose tests allocate without bound raises it to the container's memory limit. The CPU time in engine_track.json counts only the processes a campaign waited for.
 
-| tool | projects run | native mutants | agree: killed | unconfirmed kills | agree: survived | missed kills | not comparable | false kills | false survivors | wall time | peak memory |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| balamut | 5/6 | 1765 | 1460 | 0 | 107 | 0 | 198 | 0.0% | 0.0% | 112 s | 1428 MiB |
-| cosmic-ray | 6/6 | 3242 | 2821 | 0 | 409 | 0 | 12 | 0.0% | 0.0% | 643 s | 3072 MiB |
-| deployproof | 4/6 | 944 | 444 | 0 | 122 | 63 | 315 | 0.0% | 34.1% | 134 s | 338 MiB |
-| fest | 6/6 | 1900 | 546 | 13 | 69 | 771 | 501 | 2.3% | 91.8% | 4 s | 2914 MiB |
-| irradiate | 5/6 | 3232 | 2201 | 0 | 280 | 277 | 474 | 0.0% | 49.7% | 39 s | 1893 MiB |
-| mutation | 5/6 | 10442 | 7851 | 539 | 328 | 1623 | 101 | 6.4% | 83.2% | 608 s | 3072 MiB |
-| mutmut | 3/6 | 2805 | 1294 | 0 | 159 | 10 | 1342 | 0.0% | 5.9% | 9 s | 2573 MiB |
-| poodle | 4/6 | 1914 | 1572 | 1 | 258 | 0 | 83 | 0.1% | 0.0% | 151 s | 3072 MiB |
-| pytest-gremlins | 6/6 | 847 | 762 | 0 | 80 | 0 | 5 | 0.0% | 0.0% | 165 s | 304 MiB |
-| pytest-leela | 4/6 | 655 | 439 | 0 | 34 | 182 | 0 | 0.0% | 84.3% | 12 s | 300 MiB |
-| universalmutator | 6/6 | 5453 | 4801 | 0 | 644 | 0 | 8 | 0.0% | 0.0% | 1314 s | 3072 MiB |
+| tool | projects run | native mutants | agree: killed | unconfirmed kills | agree: survived | missed kills | not comparable | false kills | false survivors | wall time | CPUs usable of visible | peak tasks | peak memory |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| balamut | 5/6 | 1765 | 1460 | 0 | 107 | 0 | 198 | 0.0% | 0.0% | 92 s (92–112, 5 runs) | 4 of 14 | 54 | 1428 MiB |
+| cosmic-ray | 6/6 | 3242 | 2821 | 0 | 409 | 0 | 12 | 0.0% | 0.0% | 637 s (636–643, 5 runs) | 4 of 14 | 13 | 3072 MiB (limit reached: sqlparse) |
+| deployproof | 4/6 | 944 | 444 | 0 | 122 | 63 | 315 | 0.0% | 34.1% | 134 s (134–134, 5 runs) | 4 of 14 | 13 | 338 MiB |
+| fest | 6/6 | 1900 | 546 | 13 | 69 | 771 | 501 | 2.3% | 91.8% | 4 s (3–4, 5 runs) | 4 of 14 | 21 | 2914 MiB |
+| irradiate | 5/6 | 3232 | 2201 | 0 | 280 | 277 | 474 | 0.0% | 49.7% | 38 s (34–40, 5 runs) | 4 of 14 | 41 | 1893 MiB |
+| mutation | 5/6 | 10442 | 7851 | 539 | 328 | 1623 | 101 | 6.4% | 83.2% | 596 s (595–608, 5 runs) | 4 of 14 | 62 | 3072 MiB (limit reached: toolz, sqlparse) |
+| mutmut | 3/6 | 2805 | 1294 | 0 | 159 | 10 | 1342 | 0.0% | 5.9% | 9 s (9–9, 5 runs) | 4 of 14 | 70 | 2573 MiB |
+| poodle | 4/6 | 1914 | 1572 | 1 | 258 | 0 | 83 | 0.1% | 0.0% | 152 s (151–152, 5 runs) | 4 of 14 | 32 | 3072 MiB (limit reached: toolz, sqlparse) |
+| pytest-gremlins | 6/6 | 847 | 762 | 0 | 80 | 0 | 5 | 0.0% | 0.0% | 165 s (164–165, 5 runs) | 4 of 14 | 13 | 304 MiB |
+| pytest-leela | 4/6 | 655 | 439 | 0 | 34 | 182 | 0 | 0.0% | 84.3% | 13 s (12–13, 5 runs) | 4 of 14 | 13 | 300 MiB |
+| universalmutator | 6/6 | 5453 | 4801 | 0 | 644 | 0 | 8 | 0.0% | 0.0% | 1289 s (1286–1314, 5 runs) | 4 of 14 | 30 | 3072 MiB (limit reached: cachetools, sqlparse) |
+
+Outcomes: a campaign that ran and gave verdicts (ran), one that gave none or left no report (did not run out of the box), and among those that ran, the ones whose comparable verdicts all agree with the reference oracle.
+
+| tool | ran, all comparable verdicts agree | ran, some disagree | did not run out of the box |
+|---|---|---|---|
+| balamut | python-semver, cachetools, humanize, sqlparse, attrs | – | toolz |
+| cosmic-ray | python-semver, cachetools, humanize, toolz, sqlparse, attrs | – | – |
+| deployproof | sqlparse, attrs | python-semver, cachetools | humanize, toolz |
+| fest | – | python-semver, cachetools, humanize, toolz, sqlparse, attrs | – |
+| irradiate | – | cachetools, humanize, toolz, sqlparse, attrs | python-semver |
+| mutation | – | python-semver, cachetools, humanize, toolz, sqlparse | attrs |
+| mutmut | toolz | cachetools, sqlparse | python-semver, humanize, attrs |
+| poodle | cachetools, humanize, sqlparse | toolz | python-semver, attrs |
+| pytest-gremlins | python-semver, cachetools, humanize, toolz, sqlparse, attrs | – | – |
+| pytest-leela | python-semver, humanize, attrs | cachetools | toolz, sqlparse |
+| universalmutator | python-semver, cachetools, humanize, toolz, sqlparse, attrs | – | – |
+
+Repeated campaigns: per repetition, the mutants it shares with the first run (by mutated file, else by file and native id) and how many of them changed verdict; over all runs, the mutants every run has whose verdicts differ, by the verdicts they got.
+
+| project | tool | runs | common mutants | changed verdict | varied over all runs |
+|---|---|---|---|---|---|
+| cachetools | balamut | 5 | 518, 518, 518, 518 | 0, 0, 0, 0 | – |
+| cachetools | mutmut | 5 | 659, 659, 659, 659 | 0, 0, 0, 0 | – |
+| cachetools | cosmic-ray | 5 | 576, 576, 576, 576 | 0, 0, 0, 1 | killed/survived 1 |
+| cachetools | poodle | 5 | 545, 545, 545, 545 | 0, 0, 0, 1 | killed/survived 1 |
+| cachetools | pytest-gremlins | 5 | 172, 172, 172, 172 | 0, 0, 0, 0 | – |
+| cachetools | pytest-leela | 5 | 195, 195, 195, 195 | 0, 0, 0, 0 | – |
+| cachetools | mutation | 5 | 2688, 2686, 2691, 2689 | 0, 0, 0, 0 | – |
+| cachetools | universalmutator | 5 | 1180, 1180, 1180, 1180 | 1, 0, 0, 0 | killed/survived 1 |
+| cachetools | fest | 5 | 319, 319, 319, 319 | 2, 6, 1, 5 | killed/survived 7 |
+| cachetools | irradiate | 5 | 913, 913, 913, 913 | 13, 13, 15, 15 | killed/survived 1, killed/timeout 8, survived/timeout 23 |
+| cachetools | deployproof | 5 | 98, 98, 98, 98 | 0, 0, 0, 0 | – |
 
 | project | tool | campaign | wall time | peak memory | native verdicts | comparison | control run |
 |---|---|---|---|---|---|---|---|

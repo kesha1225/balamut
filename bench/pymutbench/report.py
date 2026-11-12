@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from pymutbench import CORPUS, RESULTS, __version__, fixes, svg
 from pymutbench.fingerprint import oracle_mode, oracle_semantics
 from pymutbench.metrics import K_BUDGETS, Q_BUDGETS, TOOLS, BugResult, bug_result, to_json
-from pymutbench.orchestrate import OUT, WORK
+from pymutbench.orchestrate import BENCH, OUT, WORK
 from pymutbench.registry import REGISTRY
 from pymutbench.stats import SEED, Bootstrap, cluster_bootstrap, holm, pooled_mean, project_mean, spearman, split_half
 
@@ -1338,12 +1338,11 @@ def _engine_side_by_side(agg: dict[str, Any]) -> list[str]:
     return out
 
 
-def engine_summary(results_dir: Path) -> dict[str, Any]:
+def engine_summary(path: Path) -> dict[str, Any]:
     """Per tool from the published engine track (``engine_track.json``): the share of its survivors the oracle
     kills and its campaigns without verdicts."""
     from pymutbench.report_engine import engine_totals
 
-    path = results_dir / "engine_track.json"
     if not path.exists():
         return {}
     report = json.loads(path.read_text(encoding="utf-8"))
@@ -1640,6 +1639,11 @@ def main() -> None:
         help="comma-separated subjects whose incomplete selection is published as such",
     )
     p.add_argument("--preview", action="store_true", help="report the publication gaps instead of refusing")
+    p.add_argument(
+        "--engine-track",
+        default=str(BENCH / "results" / "engine_track.json"),
+        help="the engine track's published results (report_engine engine), summarized beside S(k)",
+    )
     args = parser.parse_args()
     accepted = frozenset(s for s in args.accept_incomplete.split(",") if s)
     results = load(accept_incomplete=accepted, preview=args.preview)
@@ -1647,7 +1651,7 @@ def main() -> None:
     agg["oracle_sensitivity"] = sensitivity()
     agg["oracle_equivalence"] = equivalence()
     agg["cost"], lite = cost_and_lite(results)
-    agg["engine"] = engine_summary(Path(args.results))
+    agg["engine"] = engine_summary(Path(args.engine_track))
     agg["selection_incomplete_accepted"] = sorted(accepted)
     agg["preview_problems"] = list(PROBLEMS) if args.preview else []
     out = Path(args.results)

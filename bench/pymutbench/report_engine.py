@@ -115,12 +115,34 @@ def compare(native: dict[str, Any], oracle: dict[str, dict[str, Any]]) -> dict[s
     return {"counts": dict(counts), "total": total, "examples": {k: v[:5] for k, v in examples.items()}}
 
 
+def _run_verdicts(run: dict[str, Any]) -> dict[tuple[str, ...], frozenset[str]]:
+    """A run's verdicts per mutant. A mapped native mutant is identified by its artifact (the mutated file), since a
+    tool may number its mutants anew in every run (mutation's ids are time-based); an unmapped one by its file and
+    native id. The native mutants of one mutated file keep all their verdicts."""
+    found: dict[tuple[str, ...], set[str]] = {}
+    for r in run.get("mutants", []):
+        key = ("artifact", r["aid"]) if r.get("aid") else ("native", str(r.get("path")), str(r["native_id"]))
+        found.setdefault(key, set()).add(r["verdict"])
+    return {key: frozenset(verdicts) for key, verdicts in found.items()}
+
+
 def stability(first: dict[str, Any], second: dict[str, Any]) -> dict[str, int]:
-    a = {(r.get("path"), str(r["native_id"])): r["verdict"] for r in first.get("mutants", [])}
-    b = {(r.get("path"), str(r["native_id"])): r["verdict"] for r in second.get("mutants", [])}
-    common = set(a) & set(b)
+    """A repetition against the first run: the mutants both runs have, how many of them got other verdicts, and the
+    mutants only one run has (mutation draws its number literals anew in every run)."""
+    a, b = _run_verdicts(first), _run_verdicts(second)
+    common = a.keys() & b.keys()
     return {"common": len(common), "changed": sum(1 for k in common if a[k] != b[k]),
-            "only_first": len(set(a) - set(b)), "only_second": len(set(b) - set(a))}
+            "only_first": len(a.keys() - b.keys()), "only_second": len(b.keys() - a.keys())}
+
+
+def varied(runs: list[dict[str, Any]]) -> dict[str, int]:
+    """The mutants every run of a campaign has whose verdicts differ between the runs, counted by the verdicts they
+    got (``killed/timeout``)."""
+    keyed = [_run_verdicts(run) for run in runs]
+    common = set(keyed[0]).intersection(*keyed[1:])
+    found = Counter("/".join(sorted(frozenset().union(*(k[key] for k in keyed)))) for key in common
+                    if len({k[key] for k in keyed}) > 1)
+    return dict(sorted(found.items()))
 
 
 def _no_result(state: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -128,7 +150,7 @@ def _no_result(state: str, detail: dict[str, Any] | None = None) -> dict[str, An
     return {"result": state, "reason": (detail or {}).get("reason"), "detail": detail or {}, "native_mutants": 0,
             "mapped": 0, "wall_seconds": [None],
             "cpu_seconds": [None], "native_verdicts": {}, "agreement": {"counts": {}, "total": 0},
-            "stability": [], "control_run": None, "memory": {}, "cpus": [], "tasks_peak": None}
+            "stability": [], "varied": {}, "control_run": None, "memory": {}, "cpus": [], "tasks_peak": None}
 
 
 def _repeats(subject_dir: Path, tool: str) -> list[Path]:
@@ -239,6 +261,7 @@ def engine() -> tuple[dict[str, Any], list[str]]:
                 "native_verdicts": verdicts,
                 "agreement": agreement,
                 "stability": [stability(first, r) for r in repeats],
+                "varied": varied([first, *repeats]) if repeats else {},
                 "control_run": first.get("control_run"),
             }
         report[name] = subject
@@ -424,15 +447,18 @@ def engine_table(report: dict[str, Any]) -> str:
         failed = [s for s, d in report.items() if not _ran(d[tool])]
         cells = [", ".join(group) or "–" for group in (agree, disagree, failed)]
         lines.append(f"| {tool} | {' | '.join(cells)} |")
-    stable = [(s, t, e["stability"]) for s, d in report.items() for t in NATIVE_TOOLS if (e := d[t]).get("stability")]
+    stable = [(s, t, e) for s, d in report.items() for t in NATIVE_TOOLS if (e := d[t]).get("stability")]
     if stable:
-        lines += ["", "Repeated campaigns: per repetition, the native mutants both runs have (by file and native id) "
-                  "and how many of them changed verdict.", "",
-                  "| project | tool | runs | common mutants | changed verdict |",
-                  "|---|---|---|---|---|"]
-        for subject, tool, runs in stable:
+        lines += ["", "Repeated campaigns: per repetition, the mutants it shares with the first run (by mutated file, "
+                  "else by file and native id) and how many of them changed verdict; over all runs, the mutants every "
+                  "run has whose verdicts differ, by the verdicts they got.", "",
+                  "| project | tool | runs | common mutants | changed verdict | varied over all runs |",
+                  "|---|---|---|---|---|---|"]
+        for subject, tool, entry in stable:
+            runs = entry["stability"]
+            variation = ", ".join(f"{verdicts} {n}" for verdicts, n in entry.get("varied", {}).items()) or "–"
             lines.append(f"| {subject} | {tool} | {len(runs) + 1} | {', '.join(str(r['common']) for r in runs)} "
-                         f"| {', '.join(str(r['changed']) for r in runs)} |")
+                         f"| {', '.join(str(r['changed']) for r in runs)} | {variation} |")
     lines += ["",
               "| project | tool | campaign | wall time | peak memory | native verdicts | comparison | control run |",
               "|---|---|---|---|---|---|---|---|"]

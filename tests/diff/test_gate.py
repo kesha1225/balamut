@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import re
 from pathlib import Path
@@ -24,6 +23,7 @@ from balamut.diff.gate import (
 )
 from balamut.diff.scope import DiffScope, changed_lines_from_diff, mark_untracked_whole
 from balamut.report.agent import build_report
+from bm_support.modules import reloaded
 
 type _Raw = dict[str, str | int | list[str]]
 
@@ -828,6 +828,6 @@ def test_gate_type_aliases_are_unions() -> None:
     # coverage substrate attributes the lines to this test (a COLD mutant then reads as unsupported, not a gap).
     from collections.abc import Callable
 
-    importlib.reload(gate)
-    assert gate.SourceFor.__value__ == Callable[[str], str | None]
-    assert gate._SourceCache.__value__ == dict[str, str | None]
+    with reloaded(gate):
+        assert gate.SourceFor.__value__ == Callable[[str], str | None]
+        assert gate._SourceCache.__value__ == dict[str, str | None]

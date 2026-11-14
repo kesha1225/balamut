@@ -24,6 +24,7 @@ from coverage import Coverage, CoverageData
 
 from balamut.coverage import costs, failures, fast_plugin
 from balamut.coverage.costs import read_costs, write_costs
+from bm_support.modules import reloaded
 
 # costs
 
@@ -412,21 +413,13 @@ def test_combine_rejects_a_damaged_cost_shard(tmp_path: Path) -> None:
 
 
 def test_failure_schema_version_is_pinned() -> None:
-    collector = failures.FailureCollector
-    try:
-        importlib.reload(failures)
+    with reloaded(failures):
         assert failures._SCHEMA_VERSION == 1
-    finally:
-        failures.FailureCollector = collector
 
 
 def test_failure_json_value_alias_is_a_union() -> None:
-    collector = failures.FailureCollector
-    try:
-        importlib.reload(failures)
+    with reloaded(failures):
         assert isinstance(failures._JsonValue.__value__, types.UnionType)
-    finally:
-        failures.FailureCollector = collector
 
 
 # coverage worker hooks
@@ -704,12 +697,8 @@ def test_combine_worker_artifacts_fails_closed_on_missing_worker(tmp_path: Path)
 
 
 def test_worker_run_result_keys_are_optional() -> None:
-    key = fast_plugin._WORKER_STATE
-    try:
-        importlib.reload(fast_plugin)
+    with reloaded(fast_plugin):
         assert fast_plugin.WorkerRunResult.__total__ is False
-    finally:
-        fast_plugin._WORKER_STATE = key
 
 
 def test_configure_worker_creates_missing_parent_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

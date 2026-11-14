@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import importlib
 import textwrap
 
 from balamut.core.mutants import (
@@ -17,6 +16,7 @@ from balamut.operators.ast_grep import CHAIN_OPERATORS, DB_OPERATORS, AstGrepOpe
 from balamut.operators.concurrency import enumerate_concurrency
 from balamut.operators.db import ChainRulesFact, DbRulesFact, enumerate_chain, enumerate_db
 from balamut.operators.facts import mutant_mechanism
+from bm_support.modules import reloaded
 
 
 def _muts(src: str, operators: tuple[AstGrepOperator, ...]) -> list[tuple[str, str, str]]:
@@ -195,33 +195,32 @@ def test_every_db_mutant_reparses_to_valid_python() -> None:
 def test_operator_tables_class_body_reexecutes() -> None:
     # The DB_OPERATORS / CHAIN_OPERATORS tables are built at import; a reload inside the test
     # body re-runs them so the coverage substrate attributes the lines to this test.
-    importlib.reload(ast_grep_module)
+    with reloaded(ast_grep_module):
+        db_names = [op.name for op in ast_grep_module.DB_OPERATORS]
+        assert db_names == [
+            "sa:limit-drop",
+            "sa:order-by-drop",
+            "sa:asc-to-desc",
+            "sa:desc-to-asc",
+            "sa:distinct-drop",
+            "sa:on-conflict-update-to-nothing",
+        ]
 
-    db_names = [op.name for op in ast_grep_module.DB_OPERATORS]
-    assert db_names == [
-        "sa:limit-drop",
-        "sa:order-by-drop",
-        "sa:asc-to-desc",
-        "sa:desc-to-asc",
-        "sa:distinct-drop",
-        "sa:on-conflict-update-to-nothing",
-    ]
+        chain_names = [op.name for op in ast_grep_module.CHAIN_OPERATORS]
+        assert chain_names == ["std:datetime:astimezone-drop", "std:datetime:now-tz-drop", "sa:filter-drop"]
 
-    chain_names = [op.name for op in ast_grep_module.CHAIN_OPERATORS]
-    assert chain_names == ["std:datetime:astimezone-drop", "std:datetime:now-tz-drop", "sa:filter-drop"]
+        db = {op.name: (op.rule, op.rewrite) for op in ast_grep_module.DB_OPERATORS}
+        assert db["sa:limit-drop"] == ({"pattern": "$C.limit($$$A)"}, "$C")
+        assert db["sa:order-by-drop"] == ({"pattern": "$C.order_by($$$A)"}, "$C")
+        assert db["sa:asc-to-desc"] == ({"pattern": "$C.asc()"}, "$C.desc()")
+        assert db["sa:desc-to-asc"] == ({"pattern": "$C.desc()"}, "$C.asc()")
+        assert db["sa:distinct-drop"] == ({"pattern": "$C.distinct()"}, "$C")
+        assert db["sa:on-conflict-update-to-nothing"] == (
+            {"pattern": "$C.on_conflict_do_update($$$A)"},
+            "$C.on_conflict_do_nothing()",
+        )
 
-    db = {op.name: (op.rule, op.rewrite) for op in ast_grep_module.DB_OPERATORS}
-    assert db["sa:limit-drop"] == ({"pattern": "$C.limit($$$A)"}, "$C")
-    assert db["sa:order-by-drop"] == ({"pattern": "$C.order_by($$$A)"}, "$C")
-    assert db["sa:asc-to-desc"] == ({"pattern": "$C.asc()"}, "$C.desc()")
-    assert db["sa:desc-to-asc"] == ({"pattern": "$C.desc()"}, "$C.asc()")
-    assert db["sa:distinct-drop"] == ({"pattern": "$C.distinct()"}, "$C")
-    assert db["sa:on-conflict-update-to-nothing"] == (
-        {"pattern": "$C.on_conflict_do_update($$$A)"},
-        "$C.on_conflict_do_nothing()",
-    )
-
-    chain = {op.name: (op.rule, op.rewrite) for op in ast_grep_module.CHAIN_OPERATORS}
-    assert chain["std:datetime:astimezone-drop"] == ({"pattern": "$X.astimezone($$$A)"}, "$X")
-    assert chain["std:datetime:now-tz-drop"] == ({"pattern": "$D.now($TZ)"}, "$D.now()")
-    assert chain["sa:filter-drop"] == ({"pattern": "$C.filter($$$A)"}, "$C")
+        chain = {op.name: (op.rule, op.rewrite) for op in ast_grep_module.CHAIN_OPERATORS}
+        assert chain["std:datetime:astimezone-drop"] == ({"pattern": "$X.astimezone($$$A)"}, "$X")
+        assert chain["std:datetime:now-tz-drop"] == ({"pattern": "$D.now($TZ)"}, "$D.now()")
+        assert chain["sa:filter-drop"] == ({"pattern": "$C.filter($$$A)"}, "$C")

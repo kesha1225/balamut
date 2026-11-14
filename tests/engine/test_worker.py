@@ -7,7 +7,6 @@ and every bookkeeping mutation is observable without a full campaign.
 
 from __future__ import annotations
 
-import importlib
 import queue
 from pathlib import Path
 from typing import Self
@@ -29,6 +28,7 @@ from balamut.engine.results import (
 )
 from bm_support.campaign import mutant, work
 from bm_support.daemons import fake_daemon
+from bm_support.modules import reloaded
 
 
 class _RecordingStderr:
@@ -208,12 +208,11 @@ def test_red_paired_original_without_evidence_fails_closed(tmp_path: Path, monke
 
 def test_timing_defaults_are_zero() -> None:
     """Re-import so the cold class-body defaults run; ``0.0``/``0`` must not drift to ``1.0``/``1``."""
-    importlib.reload(worker)
-
-    timing = worker.Timing()
-    assert timing.write == 0.0
-    assert timing.request == 0.0
-    assert timing.n == 0
+    with reloaded(worker):
+        timing = worker.Timing()
+        assert timing.write == 0.0
+        assert timing.request == 0.0
+        assert timing.n == 0
 
 
 def test_diagnostics_add_appends_rows_under_lock(monkeypatch: pytest.MonkeyPatch) -> None:

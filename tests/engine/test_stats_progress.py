@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import math
 import sys
@@ -16,6 +15,7 @@ from balamut.engine import progress as progress_module
 from balamut.engine import stats, timeouts
 from balamut.engine.progress import CampaignProgress, ProgressMode, _stderr
 from balamut.engine.results import MutantStatus
+from bm_support.modules import reloaded
 
 type StatsPayload = dict[str, stats.JsonValue]
 
@@ -563,32 +563,31 @@ def test_write_campaign_stats_reports_a_missing_directory(tmp_path: Path) -> Non
 
 
 def test_module_level_constants_and_defaults(tmp_path: Path) -> None:
-    importlib.reload(stats)
+    with reloaded(stats):
+        assert stats.STATS_SCHEMA_VERSION == 1
+        assert stats.empty_stats(complete=False).total_cost == 0.0
+        assert stats.empty_stats(complete=False).done_cost == 0.0
+        # ``dict.fromkeys(STATUS_VALUES, 0)`` seeds every status at zero; a dropped ``0`` seeds ``None`` instead.
+        assert stats.empty_stats(complete=False).status_counts == {
+            "survived": 0,
+            "killed": 0,
+            "timeout": 0,
+            "no_coverage": 0,
+            "unsupported": 0,
+        }
+        assert len(stats.JsonValue.__value__.__args__) == 7
 
-    assert stats.STATS_SCHEMA_VERSION == 1
-    assert stats.empty_stats(complete=False).total_cost == 0.0
-    assert stats.empty_stats(complete=False).done_cost == 0.0
-    # ``dict.fromkeys(STATUS_VALUES, 0)`` seeds every status at zero; a dropped ``0`` seeds ``None`` instead.
-    assert stats.empty_stats(complete=False).status_counts == {
-        "survived": 0,
-        "killed": 0,
-        "timeout": 0,
-        "no_coverage": 0,
-        "unsupported": 0,
-    }
-    assert len(stats.JsonValue.__value__.__args__) == 7
-
-    publisher = stats.StatsPublisher(
-        path=tmp_path / "campaign-stats.json",
-        enumerated=0,
-        cache_resolved=0,
-        executed=0,
-        status_counts={},
-    )
-    assert publisher.total_cost == 0.0
-    assert publisher.terminal == 0
-    assert publisher.done_cost == 0.0
-    assert publisher.hang_weight == 0.0
+        publisher = stats.StatsPublisher(
+            path=tmp_path / "campaign-stats.json",
+            enumerated=0,
+            cache_resolved=0,
+            executed=0,
+            status_counts={},
+        )
+        assert publisher.total_cost == 0.0
+        assert publisher.terminal == 0
+        assert publisher.done_cost == 0.0
+        assert publisher.hang_weight == 0.0
 
 
 def test_timeout_policy_rejects_nonpositive_base_with_a_specific_reason() -> None:
@@ -629,10 +628,9 @@ def test_mutant_timeout_defaults_slowest_to_zero_without_costs() -> None:
 
 
 def test_timeout_calibration_constants() -> None:
-    importlib.reload(timeouts)
-
-    assert timeouts._CALIBRATED_TIMEOUT_MULTIPLIER == 2.0
-    assert timeouts._CALIBRATED_TIMEOUT_HEADROOM_S == 1.0
+    with reloaded(timeouts):
+        assert timeouts._CALIBRATED_TIMEOUT_MULTIPLIER == 2.0
+        assert timeouts._CALIBRATED_TIMEOUT_HEADROOM_S == 1.0
 
 
 class _RecordingStream(StringIO):
@@ -710,12 +708,11 @@ def test_compact_progress_flushes_after_each_emit() -> None:
 
 
 def test_progress_defaults_and_field_configuration() -> None:
-    importlib.reload(progress_module)
+    with reloaded(progress_module):
+        progress = progress_module.CampaignProgress(total=0, mode=progress_module.ProgressMode.NONE)
 
-    progress = progress_module.CampaignProgress(total=0, mode=progress_module.ProgressMode.NONE)
-
-    assert progress.compact_interval == 5.0
-    assert progress.done == 0
+        assert progress.compact_interval == 5.0
+        assert progress.done == 0
 
 
 def test_progress_advance_holds_its_lock(monkeypatch: pytest.MonkeyPatch) -> None:

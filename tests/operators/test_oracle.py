@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import ast
-import importlib
 import textwrap
 
 from balamut.operators import oracle as oracle_module
 from balamut.operators.facts import EnumContext
 from balamut.operators.kit import And
 from balamut.operators.oracle import _RAISES_KEY, RaisesExc, _BoundaryFind, enumerate_oracle
+from bm_support.modules import reloaded
 
 
 def test_oracle_excludes_non_test_methods_in_test_class() -> None:
@@ -47,12 +47,12 @@ def test_boundary_finder_ignores_a_node_that_is_not_an_assert() -> None:
 def test_oracle_class_body_reexecutes() -> None:
     # Class-body markers (self_covered, the composed matchers) run only at import; a reload inside
     # the test body re-runs them so the coverage substrate attributes the lines to this test.
-    importlib.reload(oracle_module)
-    assert oracle_module.OracleFact.self_covered is True
-    assert oracle_module.OracleWalkFact.self_covered is True
-    assert isinstance(oracle_module.AssertNegation().match, And)
-    assert isinstance(oracle_module.RaisesExc().match, And)
-    assert isinstance(oracle_module.AssertBoundaryTighten().match, And)
+    with reloaded(oracle_module):
+        assert oracle_module.OracleFact.self_covered is True
+        assert oracle_module.OracleWalkFact.self_covered is True
+        assert isinstance(oracle_module.AssertNegation().match, And)
+        assert isinstance(oracle_module.RaisesExc().match, And)
+        assert isinstance(oracle_module.AssertBoundaryTighten().match, And)
 
 
 def test_raises_exc_prepare_matcher_contract() -> None:

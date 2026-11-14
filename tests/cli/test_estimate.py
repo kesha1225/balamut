@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import math
 import tempfile
 from pathlib import Path
@@ -18,6 +17,7 @@ from balamut.coverage import costs as pytest_costs
 from balamut.coverage.coverage_map import CoverageMap
 from balamut.paths import substrate_path
 from bm_support import make_layout, make_project, write_file
+from bm_support.modules import reloaded
 
 
 def _close(left: float, right: float) -> bool:
@@ -139,11 +139,11 @@ def test_probe_overhead_is_none_without_a_request_timing(
 def test_module_constants_have_their_documented_values() -> None:
     # The module-level constants execute only at import; a reload inside the test body re-runs them so the
     # coverage substrate attributes the lines to this test (a COLD mutant then reads as unsupported, not a gap).
-    importlib.reload(estimate)
-    assert estimate._OVERHEAD_FALLBACK_S == 0.35
-    assert estimate._EXPENSIVE_S == 0.5
-    assert estimate._KILLER_FIRST_EXPENSIVE_SHARE == 0.5
-    assert estimate._STARTUP_FALLBACK_S == 3.0
+    with reloaded(estimate):
+        assert estimate._OVERHEAD_FALLBACK_S == 0.35
+        assert estimate._EXPENSIVE_S == 0.5
+        assert estimate._KILLER_FIRST_EXPENSIVE_SHARE == 0.5
+        assert estimate._STARTUP_FALLBACK_S == 3.0
 
 
 def test_work_of_tiers_cheap_and_expensive() -> None:

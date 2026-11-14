@@ -11,7 +11,6 @@ from __future__ import annotations
 import ast
 import builtins
 import dis
-import importlib
 import types
 from collections.abc import Callable, Sequence
 
@@ -43,6 +42,7 @@ from balamut.runtime.bytecode import (
     unsafe_positions,
 )
 from balamut.runtime.inmemory import compile_function_code
+from bm_support.modules import reloaded
 
 _GLOBALS = {"__builtins__": builtins}
 type _Outcome = tuple[str, object]
@@ -669,21 +669,15 @@ def test_binop_and_compare_arg_tables_built_from_probes() -> None:
     # The module-level dict comprehensions build the op-arg tables from a compiled probe at import. Re-executing
     # the module body inside the test attributes those lines to this test and re-checks the contract: every
     # operator name maps to the arg of its probe instruction, and the tables cover every symbol.
-    namespace = dict(vars(bytecode))
-    try:
-        reloaded = importlib.reload(bytecode)
-        assert set(reloaded._BINOP_ARG) == set(reloaded._BINOP_SYM)
-        assert set(reloaded._COMPARE_ARG) == set(reloaded._CMP_SYM)
-        for name, sym in reloaded._BINOP_SYM.items():
-            assert reloaded._BINOP_ARG[name] == reloaded._op_arg(sym, "BINARY_OP")
-        for name, sym in reloaded._CMP_SYM.items():
-            assert reloaded._COMPARE_ARG[name] == reloaded._op_arg(sym, "COMPARE_OP")
+    with reloaded(bytecode) as module:
+        assert set(module._BINOP_ARG) == set(module._BINOP_SYM)
+        assert set(module._COMPARE_ARG) == set(module._CMP_SYM)
+        for name, sym in module._BINOP_SYM.items():
+            assert module._BINOP_ARG[name] == module._op_arg(sym, "BINARY_OP")
+        for name, sym in module._CMP_SYM.items():
+            assert module._COMPARE_ARG[name] == module._op_arg(sym, "COMPARE_OP")
         # The arg distinguishes the operator from the RESUME prologue (arg 0).
-        assert reloaded._BINOP_ARG["Add"] != reloaded._BINOP_ARG["Sub"]
-    finally:
-        # A reload rebinds every function of the module, while the tests of this file call the objects they
-        # imported: the namespace goes back, so the process keeps one object per function.
-        bytecode.__dict__.update(namespace)
+        assert module._BINOP_ARG["Add"] != module._BINOP_ARG["Sub"]
 
 
 def test_rebuild_replaces_a_deeply_nested_code_object() -> None:

@@ -7,7 +7,6 @@ project command; ``none`` shares the caller's environment.
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import stat
@@ -34,6 +33,7 @@ from balamut.isolation.postgres import (
 )
 from balamut.isolation.shell import ShellIsolation
 from bm_support import make_layout, write_file
+from bm_support.modules import reloaded
 
 ENV = DatabaseEnv(
     host="APP_DB_HOST", port="APP_DB_PORT", database="APP_DB_NAME", user="APP_DB_USER", password="APP_DB_PASS"
@@ -525,10 +525,10 @@ def test_prepare_gives_up_when_the_template_vanishes_after_the_rebuild(tmp_path:
 
 
 def test_postgres_module_constants_are_loaded() -> None:
-    reloaded = importlib.reload(postgres)
-    assert reloaded._IDENTIFIER_LIMIT == 63
-    assert reloaded._TEMPLATE_TTL_SECONDS == 7 * 24 * 3600
-    assert reloaded._BUILD_TTL_SECONDS == 3600
+    with reloaded(postgres) as module:
+        assert module._IDENTIFIER_LIMIT == 63
+        assert module._TEMPLATE_TTL_SECONDS == 7 * 24 * 3600
+        assert module._BUILD_TTL_SECONDS == 3600
 
 
 def test_project_files_uses_git_listing_when_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1089,9 +1089,9 @@ def test_shell_run_passes_capture_and_text_and_no_check(monkeypatch: pytest.Monk
 
 
 def test_json_value_alias_evaluates_to_a_union() -> None:
-    reloaded = importlib.reload(shell)
-    value = reloaded._JsonValue.__value__
-    assert get_args(value)
+    with reloaded(shell) as module:
+        value = module._JsonValue.__value__
+        assert get_args(value)
 
 
 def test_isolation_for_postgres_template_returns_provider(tmp_path: Path) -> None:

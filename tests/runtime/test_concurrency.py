@@ -8,7 +8,6 @@ of the locked variant under every seed: exactly what a probe test needs to kill 
 from __future__ import annotations
 
 import asyncio
-import importlib
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 
@@ -30,6 +29,7 @@ from balamut.concurrency import (
     run_under_fuzz,
     run_under_pct,
 )
+from bm_support.modules import reloaded
 
 
 @dataclass
@@ -198,16 +198,11 @@ def test_pct_task_context_default_is_minus_one() -> None:
 
 def test_module_contextvar_defaults_are_exact() -> None:
     # Module-level ContextVar defaults run only at import; a reload inside the test body re-executes
-    # them so the coverage substrate attributes those lines to this test. The ContextVars are bound by
-    # the async helpers, so their identity is restored afterwards.
-    fuzz, pct_task, pct = concurrency._FUZZ, concurrency._PCT_TASK, concurrency._PCT
-    try:
-        importlib.reload(concurrency)
+    # them so the coverage substrate attributes those lines to this test.
+    with reloaded(concurrency):
         assert concurrency._FUZZ.get() is None
         assert concurrency._PCT_TASK.get() == -1
         assert concurrency._PCT.get() is None
-    finally:
-        concurrency._FUZZ, concurrency._PCT_TASK, concurrency._PCT = fuzz, pct_task, pct
 
 
 def test_pct_runner_resets_the_task_context(monkeypatch: pytest.MonkeyPatch) -> None:

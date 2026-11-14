@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import shlex
@@ -21,6 +20,7 @@ from balamut.engine.results import CampaignExactnessError, CampaignSetupError, D
 from balamut.runtime.kill_deps import KILL_DEPS_SUFFIX
 from balamut.runtime.plugin import TOUCHED_MARKER_SUFFIX, MutantSpec, original_lease_deps, parse_mutant_spec
 from bm_support.daemons import FakeProcess, fake_daemon
+from bm_support.modules import reloaded
 
 type Frame = dict[str, object]
 type ResultSink = Callable[[daemon.CompactResult], None]
@@ -1739,21 +1739,18 @@ def test_a_daemon_that_crashed_before_the_fresh_switch_is_respawned_and_switched
 
 
 def test_module_configuration_and_dataclass_defaults() -> None:
-    # The reload re-executes the module body for the coverage tracer, but it also recreates every class; other
-    # modules and test files bound the original objects at import time, so their identity is restored.
-    hang, run_result, daemon_class = daemon.Hang, daemon.RunResult, daemon.Daemon
-    importlib.reload(daemon)
-    daemon.Hang, daemon.RunResult, daemon.Daemon = hang, run_result, daemon_class
-    assert daemon._READY_TIMEOUT == 180.0
-    assert daemon._IDLE_TTL_S == 600
-    assert daemon._CONNECT_ATTEMPTS == 50
-    assert daemon._CONNECT_RETRY_DELAY == 0.1
-    assert daemon._HANG_WARN_FRACTION == 0.75
-    assert daemon.COLLECTION_FILE_LIMIT == 400
+    # The reload re-executes the module body for the coverage tracer.
+    with reloaded(daemon):
+        assert daemon._READY_TIMEOUT == 180.0
+        assert daemon._IDLE_TTL_S == 600
+        assert daemon._CONNECT_ATTEMPTS == 50
+        assert daemon._CONNECT_RETRY_DELAY == 0.1
+        assert daemon._HANG_WARN_FRACTION == 0.75
+        assert daemon.COLLECTION_FILE_LIMIT == 400
 
-    d = daemon.Daemon("sock", Path("mutant.json"), FakeProcess(), BytesIO(), 1, {})
-    assert d.persist_workers is True
-    assert d.respawns == 0
+        d = daemon.Daemon("sock", Path("mutant.json"), FakeProcess(), BytesIO(), 1, {})
+        assert d.persist_workers is True
+        assert d.respawns == 0
 
 
 # ---------------------------------------------------------------------------

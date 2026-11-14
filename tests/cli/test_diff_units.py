@@ -48,6 +48,7 @@ from bm_support.diff import (
     section,
     write_project,
 )
+from bm_support.modules import reloaded
 from bm_support.scopes import scope
 
 _FAILED = "tests/x_test.py::test_regression"
@@ -230,13 +231,12 @@ def test_publish_double_failure_keeps_non_ascii_unescaped_on_stdout(
 
 
 def test_module_reload_re_executes_type_aliases_and_defaults() -> None:
-    importlib.reload(diff)
-
-    assert diff.JsonValue is not None
-    assert diff.JsonObject is not None
-    assert diff.RunState().substrate_reused is False
-    assert diff.RunState().substrate_drift_files == 0
-    assert diff.RunState().baseline_failure_cached is False
+    with reloaded(diff):
+        assert diff.JsonValue is not None
+        assert diff.JsonObject is not None
+        assert diff.RunState().substrate_reused is False
+        assert diff.RunState().substrate_drift_files == 0
+        assert diff.RunState().baseline_failure_cached is False
 
 
 def test_empty_environment_is_an_empty_dict() -> None:

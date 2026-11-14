@@ -8,7 +8,6 @@ filters must stay as strict as the tables declare.
 from __future__ import annotations
 
 import ast
-import importlib
 
 import pytest
 
@@ -24,6 +23,7 @@ from balamut.operators.src import (
     enumerate_defaults,
     enumerate_mutants,
 )
+from bm_support.modules import reloaded
 
 
 def _ops(source: str) -> set[str]:
@@ -192,21 +192,17 @@ def test_src_kind_operator_names() -> None:
     # Every explicit operator name and namespace in the module-level table is pinned: a swap/drop
     # in ``operator_name(...)`` or ``namespace=...`` must surface as a wrong operator id.
     # A reload re-executes the module-level table inside the test body so the coverage tracer
-    # attributes the lines to this test (a cold mutant would otherwise read as uncovered). The
-    # reload recreates every class and the ``src_kind`` tuple; other tests compare those by
-    # identity, so the original tuple is restored while the re-execution still records coverage.
-    src_kind = src_module.src_kind
-    importlib.reload(src_module)
-    src_module.src_kind = src_kind
-    assert "lang:unary:not-removal" in _ops("def f():\n    return not x\n")
-    assert "lang:control:break->continue" in _ops("def f():\n    while True:\n        break\n")
-    assert "lang:control:continue->break" in _ops("def f():\n    while True:\n        continue\n")
-    assert "std:builtins:min->max" in _ops("def f(a, b):\n    return min(a, b)\n")
-    assert "std:str:startswith->endswith" in _ops("def f(s, x):\n    return s.startswith(x)\n")
-    assert "std:builtins:round-drop" in _ops("def f(x):\n    return round(x)\n")
-    assert "std:decimal:quantize-drop" in _ops("def f(d, e):\n    return d.quantize(e)\n")
-    assert "lang:return:None" in _ops("def f():\n    return 1\n")
-    assert "lang:delete:call" in _ops("def f():\n    g()\n")
+    # attributes the lines to this test (a cold mutant would otherwise read as uncovered).
+    with reloaded(src_module):
+        assert "lang:unary:not-removal" in _ops("def f():\n    return not x\n")
+        assert "lang:control:break->continue" in _ops("def f():\n    while True:\n        break\n")
+        assert "lang:control:continue->break" in _ops("def f():\n    while True:\n        continue\n")
+        assert "std:builtins:min->max" in _ops("def f(a, b):\n    return min(a, b)\n")
+        assert "std:str:startswith->endswith" in _ops("def f(s, x):\n    return s.startswith(x)\n")
+        assert "std:builtins:round-drop" in _ops("def f(x):\n    return round(x)\n")
+        assert "std:decimal:quantize-drop" in _ops("def f(d, e):\n    return d.quantize(e)\n")
+        assert "lang:return:None" in _ops("def f():\n    return 1\n")
+        assert "lang:delete:call" in _ops("def f():\n    g()\n")
 
 
 def test_src_kind_call_argument_operators_are_high_bucket() -> None:
@@ -224,14 +220,12 @@ def test_src_kind_bool_flip_is_high_bucket() -> None:
     # FlipBoolSite is declared triage=HIGH in the table; dropping the kwarg falls back to REVIEW.
     from balamut.core.triage import Bucket, classify
 
-    src_kind = src_module.src_kind
-    importlib.reload(src_module)
-    src_module.src_kind = src_kind
-    mutants = src_module.enumerate_mutants("t.py", "def f():\n    return True\n")
-    bool_flips = [m for m in mutants if m.operator.startswith("lang:const:bool")]
-    assert bool_flips
-    for m in bool_flips:
-        assert classify(m) is Bucket.HIGH
+    with reloaded(src_module):
+        mutants = src_module.enumerate_mutants("t.py", "def f():\n    return True\n")
+        bool_flips = [m for m in mutants if m.operator.startswith("lang:const:bool")]
+        assert bool_flips
+        for m in bool_flips:
+            assert classify(m) is Bucket.HIGH
 
 
 def test_call_argument_operators_skip_no_ops() -> None:

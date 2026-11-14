@@ -216,6 +216,44 @@ def test_resolve_function_does_not_crash_on_shadowed_namespace() -> None:
     assert resolve_function(module, "C.m") is None
 
 
+def test_resolve_function_does_not_look_past_a_shadowed_namespace() -> None:
+    # `C` is no namespace, so `C.m` names nothing, even though the module itself binds an `m`.
+    module = types.ModuleType("shadow_outer")
+    exec(compile("C = 5\ndef m():\n    return 1\n", "s.py", "exec"), vars(module))
+    assert resolve_function(module, "C.m") is None
+
+
+def test_resolve_function_never_walks_an_attribute_named_like_the_locals_marker() -> None:
+    module = types.ModuleType("locals_attr_mod")
+    exec(compile("def outer():\n    def inner():\n        return 1\n    return inner\n", "n.py", "exec"), vars(module))
+    vars(module.outer)["<locals>"] = types.SimpleNamespace(inner=module.outer)
+    assert resolve_function(module, "outer.<locals>.inner") is None
+
+
+def test_resolve_function_refuses_a_wrapped_cycle() -> None:
+    module = types.ModuleType("cycle_mod")
+    exec(compile("def f():\n    return 1\nf.__wrapped__ = f\n", "c.py", "exec"), vars(module))
+    assert resolve_function(module, "f") is None
+
+
+_UNCALLABLE_GETTER_SRC = (
+    "def body():\n"
+    "    return 1\n"
+    "class Wrapping:\n"
+    "    def __init__(self, wrapped):\n"
+    "        self.__wrapped__ = wrapped\n"
+    "class C:\n"
+    "    value = property(Wrapping(body))\n"
+)
+
+
+def test_resolve_function_refuses_a_getter_that_is_not_callable() -> None:
+    # The getter only points at a function through `__wrapped__`: nothing calls that body through the property.
+    module = types.ModuleType("uncallable_getter_mod")
+    exec(compile(_UNCALLABLE_GETTER_SRC, "u.py", "exec"), vars(module))
+    assert resolve_function(module, "C.value") is None
+
+
 _DECORATED_SRC = (
     "import functools\n"
     "def deco(fn):\n"
@@ -413,6 +451,15 @@ def test_resolve_function_unwraps_staticmethod() -> None:
     func = resolve_function(module, "C.m")
     assert func is not None
     assert func(1) == 2
+
+
+def test_resolve_function_unwraps_classmethod() -> None:
+    module = types.ModuleType("class_mod")
+    source = "class C:\n    @classmethod\n    def m(cls, x):\n        return x + 1\n"
+    exec(compile(source, "c.py", "exec"), vars(module))
+    func = resolve_function(module, "C.m")
+    assert func is not None
+    assert func.__code__.co_qualname == "C.m"
 
 
 def test_is_method_descriptor_detects_static_and_class_methods() -> None:

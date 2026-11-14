@@ -111,6 +111,121 @@ def _read(root: Path) -> baseline_failure.BaselineFailureRecord | None:
     return baseline_failure.failure_read(coverage_path(root), expected_fingerprint=_fingerprint(root))
 
 
+# --- kept ahead of the module reload below, which recreates every function and class of the module ---
+
+
+def _pool_offline(_root: Path) -> Path:
+    raise OSError("pool offline")
+
+
+def test_substrate_seed_warns_and_leaves_a_build_when_the_pool_is_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(pool, "pool_dir", _pool_offline)
+
+    seeded = diff._substrate_seed(
+        project_profile(tmp_path).layout,
+        tmp_path,
+        coverage_path(tmp_path),
+        expected(tmp_path),
+        substrate.TreeRecord(hashes={}, reexports={}),
+        frozenset(),
+    )
+
+    assert seeded is None
+    assert capsys.readouterr().err == (
+        "balamut diff: the shared substrate pool is unavailable, building from scratch: pool offline\n"
+    )
+
+
+def test_substrate_share_warns_when_the_pool_is_unreachable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(pool, "pool_dir", _pool_offline)
+
+    diff._substrate_share(tmp_path, coverage_path(tmp_path), expected(tmp_path))
+
+    assert capsys.readouterr().err == (
+        "balamut diff: the build did not reach the shared substrate pool: pool offline\n"
+    )
+
+
+def test_runtime_fingerprint_names_an_uninstalled_component_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    def version(distribution: str) -> str:
+        if distribution == "pytest-fast":
+            raise importlib.metadata.PackageNotFoundError(distribution)
+        return "1.0"
+
+    monkeypatch.setattr(importlib.metadata, "version", version)
+
+    entries = [
+        ("python", platform.python_version()),
+        ("implementation", sys.implementation.name),
+        ("cache_tag", sys.implementation.cache_tag or ""),
+        ("machine", platform.machine()),
+        ("coverage", "1.0"),
+        ("pytest", "1.0"),
+        ("pytest-fast", "missing"),
+    ]
+    assert diff.runtime_fingerprint() == diff._fingerprint(entries)
+
+
+def test_raw_validate_rejects_an_enumerated_count_the_rows_do_not_add_up_to() -> None:
+    """One killed row against one killed in the stats: only the enumerated count disagrees."""
+    mutant = diff_gate.parse_mutants(json.dumps([raw_mutant("killed", bucket="")]))[0]
+    stats = _campaign_stats(
+        enumerated=2, status_counts={"killed": 1, "survived": 0, "timeout": 0, "no_coverage": 0, "unsupported": 0}
+    )
+
+    with pytest.raises(ValueError, match="enumerated count"):
+        diff._raw_validate([mutant], stats)
+
+
+def test_rendered_findings_of_a_report_without_findings_are_empty() -> None:
+    assert diff._rendered_findings(None) == []
+
+
+def test_announce_drift_of_new_sources_prints_only_the_rebuild_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = _make_run(tmp_path, Scenario(tmp_path))
+    drift = substrate.TreeDrift(reason="tree_new_src", paths=("src/a.py",), new_src=("src/new.py",))
+
+    run._announce_drift(drift, drift_rebuild=True)
+
+    assert capsys.readouterr().err == (
+        "balamut diff: source files the build tree does not know, rebuilding: src/new.py\n"
+    )
+
+
+def test_announce_drift_without_diverged_files_prints_nothing_and_keeps_the_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = _make_run(tmp_path, Scenario(tmp_path))
+    run.state.substrate_drift_files = 3
+
+    run._announce_drift(substrate.TreeDrift(reason="tree_unknown"), drift_rebuild=True)
+
+    assert capsys.readouterr().err == ""
+    assert run.state.substrate_drift_files == 3
+
+
+def test_publish_double_failure_keeps_non_ascii_unescaped_on_stdout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    failed = "tests/x_test.py::test_café"
+    scenario = Scenario(tmp_path, coverage_returncode=1, coverage_failed_nodeids=(failed,))
+
+    def failing_write(_path: Path, _report: diff.JsonMapping) -> None:
+        raise OSError("persistent")
+
+    monkeypatch.setattr(diff, "report_write", failing_write)
+
+    diff.main(main_args(tmp_path), runtime=scenario.runtime(), root=tmp_path)
+
+    assert f'"tests": ["{failed}"]' in capsys.readouterr().out
+
+
 # --- module-level values and the type aliases (reload re-executes them) -----------------------------
 
 

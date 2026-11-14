@@ -50,6 +50,11 @@ def test_git_unquote_strips_plain_quotes() -> None:
     assert diff_scope._git_unquote('"abc"') == "abc"
 
 
+def test_git_unquote_decodes_an_empty_quoted_path() -> None:
+    # Two quote characters are the shortest quoted form: the length guard is inclusive.
+    assert diff_scope._git_unquote('""') == ""
+
+
 def test_git_unquote_decodes_every_c_escape() -> None:
     assert diff_scope._git_unquote(r'"\a\b\t\n\v\f\r\"\\"') == "\x07\x08\x09\x0a\x0b\x0c\x0d\x22\x5c"
 

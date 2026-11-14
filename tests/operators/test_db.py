@@ -185,6 +185,24 @@ def test_chain_rules_mechanism_is_code() -> None:
     assert ChainRulesFact().mechanism() is ApplyMechanism.CODE
 
 
+def test_dedup_key_site_ignores_a_node_that_is_not_a_call() -> None:
+    source = "keys = (A, B)\n"
+    tree = ast.parse(source)
+    ctx = EnumContext("t.py", source.encode("utf-8"), line_byte_starts(source), frozenset())
+    name = next(node for node in ast.walk(tree) if isinstance(node, ast.Name))
+
+    assert list(DedupKeySite().find(name, ctx)) == []
+
+
+def test_dedup_key_of_one_element_has_nothing_to_drop() -> None:
+    source = "x = f(dedup_key=(A,))\n"
+    tree = ast.parse(source)
+    value = next(node for node in ast.walk(tree) if isinstance(node, ast.Tuple))
+    ctx = EnumContext("t.py", source.encode("utf-8"), line_byte_starts(source), frozenset())
+
+    assert list(DedupKeySite()._drop_tuple_elements(ctx, value)) == []
+
+
 def test_dedup_key_site_class_body_reexecutes() -> None:
     # The class-body field runs only at import; a reload inside the test body re-runs it so the
     # coverage substrate attributes the line to this test (a COLD mutant reads as unsupported).

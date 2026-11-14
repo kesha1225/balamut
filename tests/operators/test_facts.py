@@ -218,6 +218,27 @@ def test_suite_candidates_covers_every_parent_kind() -> None:
     assert _suite_candidates(ast.parse("pass\n")) == []
 
 
+def test_parent_of_is_none_without_a_parent_map() -> None:
+    source = "def f():\n    return 3\n"
+    ctx = _context(source)
+    assert ctx.parent_of(ast.parse(source).body[0]) is None
+
+
+def test_the_module_root_has_no_suite() -> None:
+    tree, ctx = _parent_context("def f():\n    return 3\n")
+    assert ctx.suite_of(tree) is None
+    assert ctx.suite_index(tree) is None
+
+
+def test_emit_skips_a_target_without_a_byte_span() -> None:
+    source = "def f():\n    return 3\n"
+    ctx = _context(source)
+    target = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Return))
+    target.end_lineno = None
+    ctx.emit(target, "return None", "return:None")
+    assert ctx.mutants == []
+
+
 def test_sites_step_registry_dispatches_sites_facts() -> None:
     # `sites_step = by_protocol(Sites, _sites_apply)` is a module-level registry; a reload re-runs
     # it so the coverage substrate attributes the line to this test. The step must dispatch a fact

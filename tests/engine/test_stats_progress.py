@@ -519,6 +519,49 @@ def test_publish_complete_holds_its_lock(tmp_path: Path, monkeypatch: pytest.Mon
     assert lock.entered == 1
 
 
+def test_empty_stats_counts_every_status_as_zero() -> None:
+    assert stats.empty_stats(complete=False).status_counts == _ZERO_COUNTS
+
+
+def test_reader_rejects_a_payload_that_is_not_an_object(tmp_path: Path) -> None:
+    path = tmp_path / "campaign-stats.json"
+    path.write_text("[]", encoding="utf-8")
+
+    assert stats.read_campaign_stats(path) is None
+
+
+def test_reader_rejects_status_counts_that_do_not_add_up(tmp_path: Path) -> None:
+    """Every other invariant holds: only the sum of the status counts disagrees with the resolved mutants."""
+    payload = _valid_payload()
+    payload["status_counts"] = {"killed": 1, "survived": 1, "timeout": 0, "no_coverage": 0, "unsupported": 0}
+
+    assert stats.read_campaign_stats(_write_payload(tmp_path, payload)) is None
+
+
+def test_reader_rejects_a_negative_phase_timing(tmp_path: Path) -> None:
+    payload = _valid_payload()
+    payload["timings"] = {"persistence": -1.0}
+
+    assert stats.read_campaign_stats(_write_payload(tmp_path, payload)) is None
+
+
+def test_publish_initial_writes_an_incomplete_snapshot(tmp_path: Path) -> None:
+    """Nothing was enumerated, so a snapshot marked complete would pass every reader check."""
+    path = tmp_path / "campaign-stats.json"
+    publisher = stats.StatsPublisher(
+        path=path, enumerated=0, cache_resolved=0, executed=0, status_counts=dict(_ZERO_COUNTS)
+    )
+
+    publisher.publish_initial()
+
+    assert _payload(path)["complete"] is False
+
+
+def test_write_campaign_stats_reports_a_missing_directory(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        stats.write_campaign_stats(tmp_path / "missing" / "campaign-stats.json", stats.empty_stats(complete=False))
+
+
 def test_module_level_constants_and_defaults(tmp_path: Path) -> None:
     importlib.reload(stats)
 

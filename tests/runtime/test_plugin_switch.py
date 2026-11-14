@@ -8,6 +8,7 @@ would run against the stale ``__code__``/``__defaults__`` patch.
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
 import sys
 import types
@@ -69,7 +70,9 @@ def test_switch_marks_leaked_import_target_unsupported(monkeypatch: pytest.Monke
     monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec_a))
     plugin._apply_or_switch(item)  # takes the baseline without the leaked module
 
-    sys.modules[leaked] = types.ModuleType(leaked)
+    leaked_module = types.ModuleType(leaked)
+    exec(compile("def g():\n    return 0\n", f"{leaked}.py", "exec"), vars(leaked_module))
+    sys.modules[leaked] = leaked_module
     try:
         spec_b = tmp_path / "b.json"
         spec_b.write_text(
@@ -81,6 +84,7 @@ def test_switch_marks_leaked_import_target_unsupported(monkeypatch: pytest.Monke
         monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec_b))
         plugin._apply_or_switch(item)
         assert Path(f"{spec_b}{plugin.UNSUPPORTED_MARKER_SUFFIX}").exists()
+        assert leaked_module.g() == 0  # the baseline of the first lease still stands: the spec would apply
         assert leaked in sys.modules
     finally:
         sys.modules.pop(leaked, None)
@@ -376,6 +380,15 @@ def test_runtest_setup_scrubs_transport_env(monkeypatch: pytest.MonkeyPatch) -> 
         assert key not in os.environ
 
 
+def test_runtest_setup_lets_a_daemonic_worker_start_child_processes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # pytest-fast marks its workers daemonic, and multiprocessing refuses to start a child of a daemonic process.
+    monkeypatch.delenv(plugin.MUTANT_FILE_ENV, raising=False)
+    process = multiprocessing.current_process()
+    monkeypatch.setattr(process, "daemon", True)
+    plugin.pytest_runtest_setup(cast("pytest.Item", FakeItem(FakeSession())))
+    assert process.daemon is False
+
+
 def test_switch_treats_a_valid_spec_with_original_deps_path_as_a_mutant(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -412,21 +425,21 @@ def test_switch_does_not_apply_to_a_missing_module(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(plugin, "apply_mutation_reversible", apply_spy)
     spec = tmp_path / "m.json"
-    spec.write_text(
-        json.dumps(
-            {
-                "module": "bm_absent_mod_zzz",
-                "qualname": "f",
-                "kind": "src",
-                "mutated_source": "def f():\n    return 1\n",
-            }
-        ),
-        encoding="utf-8",
+    raw = json.dumps(
+        {
+            "module": "bm_absent_mod_zzz",
+            "qualname": "f",
+            "kind": "src",
+            "mutated_source": "def f():\n    return 1\n",
+        }
     )
+    spec.write_text(raw, encoding="utf-8")
     monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
     plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
     assert calls == []
     assert Path(f"{spec}{plugin.UNSUPPORTED_MARKER_SUFFIX}").exists()
+    # The lease still has its boundary: the next item of it is recognized, the next lease resets after it.
+    assert session.stash.get(plugin._STATE, None) == plugin._AppliedMutant(raw, plugin._noop_restore)
 
 
 def test_switch_missing_file_marks_a_lease_boundary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

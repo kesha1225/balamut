@@ -523,19 +523,167 @@ def test_mutate_code_returns_none_for_an_unapplyable_edit(monkeypatch: pytest.Mo
     assert mutate_code(base, lineno=1, col=12, end_col=13, edit=edit) is None
 
 
+def test_mutate_code_falls_back_for_an_unparseable_literal_on_a_constant_site() -> None:
+    source = "def f(a):\n    return a + 10\n"
+    base = compile_function_code(source, "f", "t.py")
+    assert base is not None
+    mutant = _first_mutant(source, lambda op: op.startswith("lang:const:num"))
+    col, end_col = _col_span(source, mutant)
+    edit = BcEdit(BcEditKind.CONST, "", "", "not a literal")
+    assert mutate_code(base, lineno=mutant.lineno, col=col, end_col=end_col, edit=edit) is None
+
+
+def test_mutate_code_falls_back_for_a_literal_edit_off_any_constant_load() -> None:
+    base = compile_function_code("def f(a, b):\n    return a + b\n", "f", "t.py")
+    assert base is not None
+    edit = BcEdit(BcEditKind.CONST, "", "", "5")
+    assert mutate_code(base, lineno=2, col=11, end_col=16, edit=edit) is None
+
+
+def test_op_arg_refuses_an_instruction_without_an_arg() -> None:
+    with pytest.raises(RuntimeError, match=r"no arg for RETURN_VALUE with '\+'"):
+        _op_arg("+", "RETURN_VALUE")
+
+
+def test_common_const_args_pair_each_probed_literal_with_its_load_arg(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 3.14 loads True/False/None/-1 through LOAD_CONST, which leaves the table empty there. The opcode this
+    # interpreter loads True with stands in for the common-constant one, so every probe contributes on any version.
+    probe = compile_function_code("def _probe(): return True", "_probe", "<bcmut>")
+    assert probe is not None
+    load = next(instr for instr in dis.get_instructions(probe) if instr.argval is True)
+    monkeypatch.setattr(bytecode, "_COMMON_CONST", load.opcode)
+
+    table = bytecode._common_const_args()
+
+    assert [value for value, _arg in table] == [True, False, None, -1]
+    assert table[0] == (True, load.arg)
+
+
+def test_common_const_args_skip_a_literal_loaded_any_other_way(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No instruction has opcode -1. First the common-constant opcode is one no probe loads with, then a probe has
+    # no load instruction this module knows at all.
+    monkeypatch.setattr(bytecode, "_COMMON_CONST", -1)
+    assert bytecode._common_const_args() == ()
+
+    monkeypatch.setattr(bytecode, "_LOAD_CONST", -1)
+    monkeypatch.setattr(bytecode, "_SMALL_INT", -1)
+    assert bytecode._common_const_args() == ()
+
+
+_COMMON_TABLE: tuple[tuple[_Const, int], ...] = ((True, 3), (False, 4), (None, 5), (-1, 6))
+
+
+def test_common_arg_matches_a_value_by_exact_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bytecode, "_COMMON_CONST_ARGS", _COMMON_TABLE)
+
+    assert bytecode._common_arg(True) == 3
+    assert bytecode._common_arg(False) == 4
+    assert bytecode._common_arg(None) == 5
+    assert bytecode._common_arg(-1) == 6
+    assert bytecode._common_arg(1) is None  # equal to True, another type
+    assert bytecode._common_arg(0) is None
+    assert bytecode._common_arg(-1.0) is None
+    assert bytecode._common_arg("x") is None
+
+
+def test_edit_const_loads_a_common_constant_through_its_own_opcode(monkeypatch: pytest.MonkeyPatch) -> None:
+    def f() -> int:
+        return 0
+
+    common = bytecode._COMMON_CONST
+    assert common is not None
+    monkeypatch.setattr(bytecode, "_COMMON_CONST_ARGS", _COMMON_TABLE)
+    code = f.__code__
+    offset = _first_const_load_offset(code, 0)
+
+    edited = _edit_const(code, offset, True)
+
+    assert edited is not None
+    assert (edited.co_code[offset], edited.co_code[offset + 1]) == (common, 3)
+    assert edited.co_code[:offset] == code.co_code[:offset]
+    assert edited.co_code[offset + 2 :] == code.co_code[offset + 2 :]
+    assert edited.co_consts == code.co_consts
+
+
+def test_surgical_diff_refuses_an_edit_that_changed_the_code_size() -> None:
+    def f() -> int:
+        return 0
+
+    code = f.__code__
+    edited = _set_op_arg(code, _first_const_load_offset(code, 0), _SMALL_INT, 1)
+    assert _surgical_diff(code, edited) is not None
+    # Two more bytes read as a trailing cache entry: the instruction stream is the same, the size is not.
+    padded = edited.replace(co_code=edited.co_code + bytes(2))
+    assert _surgical_diff(code, padded) is None
+
+
+def test_surgical_diff_refuses_an_edit_that_dropped_an_instruction() -> None:
+    def f() -> int:
+        return 0
+
+    code = f.__code__
+    # The first instruction overwritten by a cache entry: the size holds, the stream is one instruction short.
+    gapped = code.replace(co_code=bytes(2) + code.co_code[2:])
+    assert _surgical_diff(code, gapped) is None
+
+
+def test_find_leaves_the_instruction_after_a_leading_extended_arg_alone() -> None:
+    # The prefix check reads the word before the instruction, and the instruction of the second word has one too.
+    def f() -> int:
+        return 0
+
+    code = f.__code__
+    offset = _first_const_load_offset(code, 0)
+    assert offset == 2
+    lineno, _end_lineno, col, end_col = tuple(code.co_positions())[offset // 2]
+    assert lineno is not None
+    assert col is not None
+    assert end_col is not None
+    prefixed = code.replace(co_code=bytes([dis.opmap["EXTENDED_ARG"], 0]) + code.co_code[2:])
+    opcodes = frozenset({_SMALL_INT})
+
+    assert _find(code, lineno=lineno, col=col, end_col=end_col, opcodes=opcodes) == (code, offset, _SMALL_INT)
+    assert _find(prefixed, lineno=lineno, col=col, end_col=end_col, opcodes=opcodes) is None
+
+
+def test_rebuild_replaces_a_directly_nested_code_object() -> None:
+    # One level of nesting: the old and the new code object reach the recursive call in the order they came in
+    # (two levels would hide a swap, which undoes itself on the way down).
+    def outer() -> int:
+        def inner() -> int:
+            return 1
+
+        return inner()
+
+    code = outer.__code__
+    nested = next(const for const in code.co_consts if isinstance(const, types.CodeType))
+    replacement = compile("x = 1\n", "<replacement>", "exec")
+
+    rebuilt = _rebuild(code, nested, replacement)
+
+    assert replacement in rebuilt.co_consts
+    assert nested not in rebuilt.co_consts
+
+
 def test_binop_and_compare_arg_tables_built_from_probes() -> None:
     # The module-level dict comprehensions build the op-arg tables from a compiled probe at import. Re-executing
     # the module body inside the test attributes those lines to this test and re-checks the contract: every
     # operator name maps to the arg of its probe instruction, and the tables cover every symbol.
-    reloaded = importlib.reload(bytecode)
-    assert set(reloaded._BINOP_ARG) == set(reloaded._BINOP_SYM)
-    assert set(reloaded._COMPARE_ARG) == set(reloaded._CMP_SYM)
-    for name, sym in reloaded._BINOP_SYM.items():
-        assert reloaded._BINOP_ARG[name] == reloaded._op_arg(sym, "BINARY_OP")
-    for name, sym in reloaded._CMP_SYM.items():
-        assert reloaded._COMPARE_ARG[name] == reloaded._op_arg(sym, "COMPARE_OP")
-    # The arg distinguishes the operator from the RESUME prologue (arg 0).
-    assert reloaded._BINOP_ARG["Add"] != reloaded._BINOP_ARG["Sub"]
+    namespace = dict(vars(bytecode))
+    try:
+        reloaded = importlib.reload(bytecode)
+        assert set(reloaded._BINOP_ARG) == set(reloaded._BINOP_SYM)
+        assert set(reloaded._COMPARE_ARG) == set(reloaded._CMP_SYM)
+        for name, sym in reloaded._BINOP_SYM.items():
+            assert reloaded._BINOP_ARG[name] == reloaded._op_arg(sym, "BINARY_OP")
+        for name, sym in reloaded._CMP_SYM.items():
+            assert reloaded._COMPARE_ARG[name] == reloaded._op_arg(sym, "COMPARE_OP")
+        # The arg distinguishes the operator from the RESUME prologue (arg 0).
+        assert reloaded._BINOP_ARG["Add"] != reloaded._BINOP_ARG["Sub"]
+    finally:
+        # A reload rebinds every function of the module, while the tests of this file call the objects they
+        # imported: the namespace goes back, so the process keeps one object per function.
+        bytecode.__dict__.update(namespace)
 
 
 def test_rebuild_replaces_a_deeply_nested_code_object() -> None:

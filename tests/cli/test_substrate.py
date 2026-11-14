@@ -67,7 +67,23 @@ def test_a_substrate_of_the_current_tree_is_reused(tmp_path: Path, capsys: pytes
     assert substrate_cmd.main([], root=root, measure=measure) == 0
 
     assert len(measure.calls) == 1
-    assert "reused generation" in capsys.readouterr().out
+    path = substrate_path(load_profile(root))
+    published = substrate.substrate_inspect(path)
+    assert published is not None
+    assert capsys.readouterr().out == f"substrate: reused generation {published.generation[:12]} at {path}\n"
+
+
+def test_coverage_option_places_the_substrate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    root = _project(tmp_path)
+    measure = _Measure()
+    custom = tmp_path / "elsewhere" / "substrate.coverage"
+
+    assert substrate_cmd.main(["--coverage", str(custom)], root=root, measure=measure) == 0
+
+    published = substrate.substrate_inspect(custom)
+    assert published is not None
+    assert [call.coverage_file.parent for call in measure.calls] == [custom.parent]
+    assert f"built generation {published.generation[:12]} at {custom} in " in capsys.readouterr().out
 
 
 def test_an_edited_tree_rebuilds(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

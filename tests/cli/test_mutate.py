@@ -17,12 +17,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
-from typing import TypedDict
+from types import SimpleNamespace
+from typing import TypedDict, cast
 
 import pytest
+from coverage import CoverageData
 
 from balamut.cli import mutate, substrate_cmd
-from balamut.config import load_profile
+from balamut.config import load_kind_overrides, load_profile
 from balamut.core.mutants import Mutant
 from balamut.coverage import costs as pytest_costs
 from balamut.coverage import failures, substrate
@@ -31,9 +33,11 @@ from balamut.coverage.refresh import MeasureContext, RefreshBaselineError
 from balamut.coverage.store import Store, StoreCoverage
 from balamut.diff.scope import DiffScope, ScopeWatch, write_scope
 from balamut.engine import campaign, collection, stats
+from balamut.engine.enumeration import known_kinds, resolve_kinds
 from balamut.engine.results import CampaignScopeChangedError, MutantResult, MutantStatus
 from balamut.isolation import isolation_for
 from balamut.operators.src import enumerate_mutants
+from balamut.paths import default_address
 from balamut.report.agent import MutantRecord
 from balamut.report.html import read_baseline
 from bm_support import make_layout, write_file
@@ -181,6 +185,23 @@ def test_a_bare_coverage_file_is_read_as_is(tmp_path: Path, monkeypatch: pytest.
     assert isinstance(calls.coverages[0], CoverageMap)
 
 
+def test_a_bare_coverage_file_with_absolute_paths_is_read_relative_to_the_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_file(tmp_path / "src/x.py", "def f(a, b):\n    return a < b\n")
+    data = CoverageData(basename=str(tmp_path / "nope.coverage"))
+    data.set_context("tests/x_test.py::test_x|run")
+    data.add_lines({str(load_profile(tmp_path).root / "src/x.py"): {2}})
+    data.write()
+    calls = _managed_substrate(monkeypatch)
+
+    assert mutate.main(_argv(tmp_path, kind="src", paths=["src/x.py"])) == 0
+
+    [coverage] = calls.coverages
+    assert isinstance(coverage, CoverageMap)
+    assert coverage.tests_covering("src/x.py", 2) == frozenset({"tests/x_test.py::test_x"})
+
+
 @pytest.mark.parametrize(
     ("failing", "expected"),
     [(("tests/x_test.py::test_x",), mutate.EXIT_REFRESH_BASELINE_FAILURE), ((), mutate.EXIT_USAGE)],
@@ -226,6 +247,14 @@ def test_typed_kind_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 @pytest.mark.parametrize("extra", [["--kind", "future-kind"], ["--mechanism", "bogus"]])
 def test_unknown_kind_or_mechanism_is_rejected(tmp_path: Path, extra: list[str]) -> None:
     assert mutate.main([*_argv(tmp_path, kind="oracle", paths=[]), *extra]) == 2
+
+
+def test_an_unknown_kind_is_named_before_the_cache_opens(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert mutate.main(_argv(tmp_path, kind="future-kind", paths=[])) == 2
+
+    known = ",".join(sorted(known_kinds()))
+    assert capsys.readouterr().err == f"error: unknown --kind ['future-kind']; known: {known}\n"
+    assert not (tmp_path / "c.sqlite").exists()
 
 
 @pytest.mark.parametrize(
@@ -628,6 +657,36 @@ def test_parser_defaults_and_detailed_json(tmp_path: Path) -> None:
     assert detailed.detailed_json == str(tmp_path / "d.json")
 
 
+def test_parser_takes_the_address_and_the_kinds_from_the_profile(tmp_path: Path) -> None:
+    profile = load_profile(tmp_path)
+
+    defaults = mutate._parser(profile).parse_args([])
+
+    assert defaults.address == default_address(profile)
+    assert defaults.kind == ",".join(profile.kinds)
+
+
+def test_parser_reads_counts_as_integers_and_switches_as_booleans(tmp_path: Path) -> None:
+    parser = mutate._parser(load_profile(tmp_path))
+
+    defaults = parser.parse_args([])
+    given = parser.parse_args(["--workers", "3", "--limit", "2", "--cross-kill", "--flat"])
+
+    assert (defaults.cross_kill, defaults.flat) == (False, False)
+    assert (given.cross_kill, given.flat) == (True, True)
+    assert (given.workers, given.limit) == (3, 2)
+
+
+def test_parser_rejects_an_unknown_progress_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    parser = mutate._parser(load_profile(tmp_path))
+
+    with pytest.raises(SystemExit) as raised:
+        parser.parse_args(["--progress", "bogus"])
+
+    assert raised.value.code == 2
+    assert "argument --progress: invalid choice: 'bogus'" in capsys.readouterr().err
+
+
 # ── main(): cache, state dir and stats handling ──────────────────────────────
 
 
@@ -745,6 +804,20 @@ def test_cold_records_resolves_an_unkeyed_cold_record() -> None:
     records = [_record("src/schema.py", 2, operator="lang:const:num:10->11", original="10", mutated="11")]
 
     runtime, cold = mutate._cold_records(records, [], sources)
+
+    assert runtime == []
+    assert cold == {"schema_default": 1}
+
+
+def test_cold_records_resolves_a_keyed_record_by_the_span_of_its_mutant() -> None:
+    """Two statements share the line: only the byte span of the campaign's mutant tells which one was mutated."""
+    source = 'class Model:\n    limit: int = 10; KIND = "a"\n'
+    mutant = next(m for m in enumerate_mutants("src/schema.py", source) if m.operator.startswith("lang:const:num:"))
+    record = _record("src/schema.py", 2, operator=mutant.operator, original=mutant.original, mutated=mutant.mutated)
+    record["key"] = "k1"
+    results = [MutantResult(mutant, MutantStatus.NO_COVERAGE, 0, "k1")]
+
+    runtime, cold = mutate._cold_records([record], results, {"src/schema.py": source})
 
     assert runtime == []
     assert cold == {"schema_default": 1}
@@ -1181,6 +1254,81 @@ def test_emit_flat_renders_the_flat_report(tmp_path: Path, monkeypatch: pytest.M
     assert len(calls) == 1
 
 
+def test_emit_default_report_counts_the_cold_sites(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    source = "class Model:\n    limit: int = 10\n"
+    cold = next(m for m in enumerate_mutants("src/schema.py", source) if m.operator.startswith("lang:const:num:"))
+    store = Store(tmp_path / "c.sqlite")
+    store.put_verdict(
+        key="cold-key",
+        file=cold.path,
+        lineno=cold.lineno,
+        operator=cold.operator,
+        original=cold.original,
+        mutated=cold.mutated,
+        qualname="Model",
+        func_hash="cold",
+        verdict="no_coverage",
+        bucket="review",
+        covering=[],
+        covering_hash="",
+    )
+    results = [MutantResult(cold, MutantStatus.NO_COVERAGE, 0, "cold-key")]
+
+    assert mutate._emit(_args(), results, store=store, sources={cold.path: source}, profile=load_profile(tmp_path)) == 0
+
+    assert "▼ COLD: 1 advisory (schema_default=1)" in capsys.readouterr().out
+
+
+# ── the enumeration cache and its configuration fingerprint ──────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class _Fact:
+    names: frozenset[str]
+    flag: bool
+
+
+def test_canonical_keeps_scalars_and_turns_sequences_into_lists() -> None:
+    assert mutate._canonical(5) == 5
+    assert mutate._canonical("text") == "text"
+    assert mutate._canonical(None) is None
+    assert mutate._canonical(("a", ["b", 1])) == ["a", ["b", 1]]
+
+
+def test_canonical_sorts_sets_and_mappings_by_repr() -> None:
+    """``repr`` orders values of any types, so a set or a mapping of mixed types has one serialization."""
+    mixed_keys = cast("mutate.Canonical", {1: "one", "a": frozenset({"y", "x"})})
+
+    assert mutate._canonical(frozenset({"b", 1, "a"})) == ["a", "b", 1]
+    assert mutate._canonical({"b": (2,), "a": frozenset({2, 1})}) == [("a", [1, 2]), ("b", [2])]
+    assert mutate._canonical(mixed_keys) == [("a", ["x", "y"]), (1, "one")]
+
+
+def test_canonical_names_a_dataclass_and_recurses_through_its_fields() -> None:
+    fact = cast("mutate.Canonical", _Fact(names=frozenset({"b", "a"}), flag=True))
+
+    assert mutate._canonical(fact) == ["_Fact", [("flag", True), ("names", ["a", "b"])]]
+
+
+def test_enum_cache_is_one_directory_per_kind_configuration(tmp_path: Path) -> None:
+    profile = load_profile(tmp_path)
+    overrides = load_kind_overrides(tmp_path)
+    one_kind = resolve_kinds(["src"], overrides)
+    two_kinds = resolve_kinds(["src", "fault"], overrides)
+    directory = profile.state_dir / "tmp" / "enum"
+
+    mutate._enum_cache(profile, one_kind).store("src/x.py", "hash", "src", [])
+    mutate._enum_cache(profile, one_kind).store("src/y.py", "hash", "src", [])
+
+    [configured] = directory.iterdir()
+    assert re.fullmatch(r"[0-9a-f]{16}", configured.name)
+    assert len(list(configured.iterdir())) == 2
+
+    mutate._enum_cache(profile, two_kinds).store("src/x.py", "hash", "src", [])
+
+    assert len(list(directory.iterdir())) == 2
+
+
 # ── the run tail: messages, daemons, mechanisms, timings, cache ──────────────
 
 
@@ -1505,6 +1653,39 @@ def test_refresh_tests_records_a_positive_timing(tmp_path: Path, monkeypatch: py
     assert 0 < timings["coverage_refresh"] < time.perf_counter()
 
 
+def test_the_refresh_and_the_collection_are_timed_from_their_own_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The clock is read at the campaign start, then around the refresh and around the collection: neither phase
+    is timed from the campaign start."""
+    write_file(tmp_path / "tests/x_test.py", "def test_x():\n    pass\n")
+    readings = iter([100.0, 200.0, 203.0, 300.0, 307.0])
+    captured: dict[str, object] = {}
+
+    def ingest_fake(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    def refresh_tests_fake(*_args: object, **_kwargs: object) -> int:
+        return 3
+
+    def campaign(*_args: object, **kwargs: object) -> list[MutantResult]:
+        captured["timings"] = kwargs["phase_timings"]
+        return []
+
+    monkeypatch.setattr(mutate, "time", SimpleNamespace(perf_counter=lambda: next(readings)))
+    monkeypatch.setattr(mutate, "ingest_baseline", ingest_fake)
+    monkeypatch.setattr(mutate, "refresh_tests", refresh_tests_fake)
+    monkeypatch.setattr(mutate, "collect_test_nodeids", _collected())
+    monkeypatch.setattr(mutate, "run_campaign", campaign)
+    argv = [*_argv(tmp_path, kind="oracle", paths=["tests/x_test.py"]), "--refresh-tests", "tests/x_test.py"]
+
+    assert mutate.main(argv) == 0
+    timings = captured["timings"]
+    assert isinstance(timings, dict)
+    assert timings["coverage_refresh"] == 3.0
+    assert timings["pytest_collection"] == 7.0
+
+
 # ── oracle collection over a scope and collection errors ─────────────────────
 
 
@@ -1534,12 +1715,22 @@ def test_oracle_collection_over_a_scope_builds_the_collection_key(
     scope = pinned(tmp_path, "tests/x_test.py")
     scope_path = tmp_path / "scope.json"
     write_scope(scope, scope_path)
+    keys: list[object] = []
+
+    def collect(_files: frozenset[str], **kwargs: object) -> frozenset[str]:
+        keys.append(kwargs["cache_key"])
+        return frozenset()
+
     monkeypatch.setattr(mutate, "prepare_diff", _changed("tests/x_test.py"))
-    monkeypatch.setattr(mutate, "collect_test_nodeids", _collected())
+    monkeypatch.setattr(mutate, "collect_test_nodeids", collect)
     monkeypatch.setattr(mutate, "run_campaign", _recording_campaign(_CampaignCall()))
     argv = [*_argv(tmp_path, kind="oracle", paths=[]), "--diff", "origin/main", "--diff-scope", str(scope_path)]
 
     assert mutate.main(argv) == 0
+    expected = collection.build_collection_key(
+        frozenset({"tests/x_test.py"}), scope=scope, metadata=published, reexport={}, root=load_profile(tmp_path).root
+    )
+    assert keys == [expected]
 
 
 def test_oracle_collection_error_is_reported(
@@ -1759,9 +1950,35 @@ def test_operator_filters_by_prefix(
     assert "mutants: 1" in capsys.readouterr().err
 
 
-def test_mechanism_filters_mutants_to_the_chosen_mechanisms(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``--mechanism code`` keeps only in-body mutants: the filter is called with (mutants, sources, chosen)."""
-    write_file(tmp_path / "src/x.py", "def f(a, b):\n    return a < b\n")
+def test_limit_caps_the_mutants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _run_with_src(tmp_path, monkeypatch, "def f(a, b):\n    return a < b\n")
+    call = _CampaignCall()
+    monkeypatch.setattr(mutate, "run_campaign", _recording_campaign(call))
+    argv = [
+        "src/x.py",
+        "--kind",
+        "src",
+        "--coverage",
+        str(tmp_path / "substrate.coverage"),
+        "--cache",
+        str(tmp_path / "c.sqlite"),
+        "--limit",
+        "1",
+    ]
+
+    assert mutate.main([*argv, "--address", str(tmp_path / "unused.sock"), "--no-refresh-substrate"]) == 0
+    assert len(call.mutants) == 1  # of the two the function has
+    assert "mutants: 1," in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("mechanism", "lines"), [("code", {5}), ("cold", {1})])
+def test_mechanism_filters_mutants_to_the_chosen_mechanisms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mechanism: str, lines: set[int]
+) -> None:
+    """``--mechanism code`` keeps the in-body mutants, ``--mechanism cold`` the module-level ones."""
+    write_file(tmp_path / "src/x.py", "LIMIT = 3\n\n\ndef f(a, b):\n    return a < b\n")
     coverage = tmp_path / "substrate.coverage"
     published = substrate.substrate_ensure(coverage, expected_substrate_metadata(), build=write_valid_coverage)
     substrate.tree_write(coverage, published.generation, substrate.tree_snapshot(make_layout(tmp_path)))
@@ -1780,13 +1997,16 @@ def test_mechanism_filters_mutants_to_the_chosen_mechanisms(tmp_path: Path, monk
         str(tmp_path / "unused.sock"),
         "--no-refresh-substrate",
         "--mechanism",
-        "code",
+        mechanism,
     ]
 
     assert mutate.main(argv) == 0
     assert call.calls == 1
-    assert call.mutants
-    assert all(mutant.path == "src/x.py" for mutant in call.mutants)
+    assert {mutant.lineno for mutant in call.mutants} == lines
+
+
+def test_no_html_report_is_requested_without_the_option() -> None:
+    assert mutate._html_request(argparse.Namespace(html="", html_baseline="")) is None
 
 
 def test_html_baseline_needs_html(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1904,8 +2124,27 @@ def test_a_failed_html_write_is_reported_and_keeps_the_campaign_result(
     (tmp_path / "report.html").mkdir()
 
     assert mutate.main(argv) == 0
-    assert "writing the HTML report failed" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "writing the HTML report failed" in err
+    assert "html report:" not in err  # a report that was not written is not announced
     assert not (tmp_path / ".report.html.tmp").exists()
+
+
+def test_the_html_report_groups_mutants_by_the_risk_areas_of_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_file(tmp_path / "pyproject.toml", '[tool.balamut]\nconfig = "balamut_conf.py"\n')
+    write_file(
+        tmp_path / "balamut_conf.py",
+        'from balamut.config import init\n\ninit(semantic=(("majority", ("age >=",)),))\n',
+    )
+    argv = _html_campaign(tmp_path, monkeypatch, MutantStatus.SURVIVED)
+
+    assert mutate.main(argv) == 0
+
+    page = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert "By risk area" in page
+    assert "majority" in page
 
 
 def test_the_report_scope_names_the_pinned_diff_the_base_or_the_paths() -> None:

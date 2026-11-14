@@ -13,8 +13,10 @@ import pytest
 from coverage import CoverageData
 
 from balamut.cli import estimate
+from balamut.config import load_profile
 from balamut.coverage import costs as pytest_costs
 from balamut.coverage.coverage_map import CoverageMap
+from balamut.paths import substrate_path
 from bm_support import make_layout, make_project, write_file
 
 
@@ -31,6 +33,107 @@ class _Captured(TypedDict):
 class _Probed(TypedDict):
     file: str
     args: tuple[dict[str, list[tuple[str, ...]]], dict[str, float], float, argparse.Namespace]
+
+
+# Kept ahead of the module reload in test_module_constants_have_their_documented_values, which recreates every
+# function of the module.
+
+
+def test_main_defaults_the_coverage_to_the_profile_substrate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_project(tmp_path / "proj")
+    monkeypatch.chdir(root)
+
+    assert estimate.main([]) == 2
+
+    expected = substrate_path(load_profile(root))
+    assert capsys.readouterr().err == f"error: no coverage substrate at {expected}: run `balamut diff` first\n"
+
+
+def test_main_reads_an_absolute_measured_path_relative_to_the_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_project(tmp_path / "proj")
+    coverage = root / "coverage"
+    data = CoverageData(basename=str(coverage))
+    data.set_context("tests/test_calc.py::test_clamp_low|run")
+    data.add_lines({str(root.resolve() / "src/pkg/calc.py"): {2, 3}})
+    data.write()
+    monkeypatch.chdir(root)
+
+    assert estimate.main(["src/pkg/calc.py", "--coverage", str(coverage), "--daemons", "2"]) == 0
+
+    out = capsys.readouterr().out
+    assert "none covered" not in out
+    assert "=== estimate: src/pkg/calc.py ===" in out
+
+
+def test_main_with_no_covered_mutants_prints_no_estimate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_project(tmp_path / "proj", {"src/pkg/only.py": "def f(x: int) -> bool:\n    return x < 0\n"})
+    coverage = root / "coverage"
+    coverage.write_text("x", encoding="utf-8")
+    monkeypatch.chdir(root)
+
+    def empty_coverage_map(*_args: object, **_kwargs: object) -> CoverageMap:
+        return CoverageMap(by_file={})
+
+    monkeypatch.setattr(estimate, "load_coverage_map", empty_coverage_map)
+
+    assert estimate.main(["src/pkg/only.py", "--coverage", str(coverage)]) == 0
+
+    assert capsys.readouterr().out == "3 mutants, none covered: nothing to run\n"
+
+
+def test_main_probe_costs_an_unmeasured_test_at_the_median(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The file whose only test has no measured duration costs the median (0.2), less than the measured 0.4."""
+    root = make_project(tmp_path / "proj")
+    coverage = root / "coverage"
+    coverage.write_text("x", encoding="utf-8")
+    costs = root / "coverage.costs.json"
+    pytest_costs.write_costs(costs, {"measured": 0.4, "low": 0.1, "mid": 0.2})
+    monkeypatch.chdir(root)
+
+    def no_coverage_map(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    def covered_two(*_args: object) -> tuple[int, dict[str, list[tuple[str, ...]]], set[str]]:
+        return 2, {"measured.py": [("measured",)], "unmeasured.py": [("unmeasured",)]}, {"measured", "unmeasured"}
+
+    monkeypatch.setattr(estimate, "load_coverage_map", no_coverage_map)
+    monkeypatch.setattr(estimate, "_covered", covered_two)
+    probed: list[str] = []
+
+    def fake_probe(file: str, *_args: object) -> float:
+        probed.append(file)
+        return 0.6
+
+    monkeypatch.setattr(estimate, "_probe_overhead", fake_probe)
+
+    code = estimate.main(["--coverage", str(coverage), "--costs", str(costs), "--probe", "1", "--daemons", "2"])
+
+    assert code == 0
+    assert probed == ["unmeasured.py"]
+
+
+def test_probe_overhead_is_none_without_a_request_timing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Completed:
+        stderr = "campaign final: done=0\n"
+
+    def fake_run(_argv: list[str], **_kwargs: object) -> Completed:
+        return Completed()
+
+    monkeypatch.setattr(estimate.subprocess, "run", fake_run)
+    args = argparse.Namespace(coverage="cov", probe=1, daemons=2, workers=1)
+
+    assert estimate._probe_overhead("untimed.py", {"untimed.py": [("t1",)]}, {"t1": 0.1}, 0.1, args) is None
+    assert capsys.readouterr().err == ""
 
 
 def test_module_constants_have_their_documented_values() -> None:

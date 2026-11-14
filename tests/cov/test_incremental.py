@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Callable, Collection, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -913,6 +914,84 @@ def test_outside_drift_continues_past_an_unchanged_file(tmp_path: Path) -> None:
     assert drift.src == ["src/b.py"]
 
 
+def test_outside_drift_skips_a_file_whose_content_matches_the_measured_hash(tmp_path: Path) -> None:
+    recorded = substrate.TreeRecord(hashes={"src/a.py": "x", "src/b.py": "x"}, reexports={})
+    current = substrate.TreeRecord(hashes={"src/a.py": "y", "src/b.py": "y"}, reexports={})
+    for path in ("src/a.py", "src/b.py"):
+        file_path = tmp_path / path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text("content\n", encoding="utf-8")
+    measured = {"src/a.py": incremental._content_hash(tmp_path, "src/a.py"), "src/b.py": "stale"}
+
+    drift = incremental._outside_drift(
+        recorded, current, layout=make_layout(tmp_path), scope_files=frozenset(), measured=measured, remap={}
+    )
+
+    assert drift.src == ["src/b.py"]
+
+
+def test_refresh_tree_measures_nothing_when_no_file_diverged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fake_ingest_generation(
+        *_args: object, **_kwargs: object
+    ) -> tuple[substrate.SubstrateMetadata | None, str | None]:
+        return expected_substrate_metadata(), "gen"
+
+    def fail_publish(*_args: object, **_kwargs: object) -> coverage_refresh.RefreshMeasurement:
+        raise AssertionError("a refresh without a diverged file must not measure")
+
+    monkeypatch.setattr(incremental, "_ingest_generation", fake_ingest_generation)
+
+    def empty_tree(*_args: object, **_kwargs: object) -> substrate.TreeRecord:
+        return substrate.TreeRecord(hashes={}, reexports={})
+
+    monkeypatch.setattr(substrate, "tree_read", empty_tree)
+    monkeypatch.setattr(substrate, "tree_snapshot", empty_tree)
+    monkeypatch.setattr(incremental, "_publish_refresh", fail_publish)
+    store = Store(tmp_path / "cache.sqlite")
+    try:
+        diverged = incremental.refresh_tree(cov_path=tmp_path / ".coverage", store=store, context=_context(tmp_path))
+    finally:
+        store.close()
+    assert diverged == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_prepare_diff_looks_for_wrappers_of_test_tree_python_files_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    coverage = tmp_path / ".coverage"
+    write_valid_coverage(coverage)
+    monkeypatch.chdir(tmp_path)
+    for path in ("src/x.py", "tests/pkg/def.py", "tests/readme.txt"):
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text("x = 1\n", encoding="utf-8")
+
+    def fake_changed(_base: str, _root: Path) -> list[str]:
+        return ["src/x.py", "tests/pkg/def.py", "tests/readme.txt"]
+
+    monkeypatch.setattr(incremental, "_git_changed", fake_changed)
+    asked: list[str] = []
+
+    def fake_wrappers(definition: str, *_args: object) -> list[str]:
+        asked.append(definition)
+        return []
+
+    monkeypatch.setattr(incremental, "_wrappers", fake_wrappers)
+
+    def measure(_targets: list[str], **_kwargs: object) -> coverage_refresh.PerTestLines:
+        return {}
+
+    monkeypatch.setattr(coverage_refresh, "measure_test_coverage", measure)
+    store = Store(tmp_path / "cache.sqlite")
+    try:
+        _prepare_diff("origin/main", cov_path=coverage, store=store)
+    finally:
+        store.close()
+    assert asked == ["tests/pkg/def.py"]
+
+
 def test_git_changed_passes_exact_git_argv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[tuple[str, ...], Path | None]] = []
 
@@ -1123,3 +1202,32 @@ def test_refresh_tree_passes_recorded_before_current_snapshot(tmp_path: Path, mo
         store.close()
     assert seen["recorded"] is marker_recorded
     assert seen["current"] is marker_snapshot
+
+
+def test_ingest_baseline_refuses_a_substrate_replaced_since_its_metadata(tmp_path: Path) -> None:
+    coverage = tmp_path / ".coverage"
+    metadata = substrate.substrate_ensure(coverage, expected_substrate_metadata(), build=write_valid_coverage)
+    stale = replace(metadata, coverage_sha256="digest-of-another-generation")
+    store = Store(tmp_path / "cache.sqlite")
+    try:
+        with pytest.raises(substrate.SubstrateCompatibilityError, match="changed before ingest"):
+            incremental.ingest_baseline(coverage, store, metadata=stale, root=tmp_path)
+        assert not store.has_coverage()
+        assert store.coverage_generation() is None
+    finally:
+        store.close()
+    assert not list(tmp_path.glob(".*.ingest.tmp"))
+
+
+def test_seed_scope_freshness_leaves_the_store_alone_when_nothing_is_vouched(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store = Store(tmp_path / "cache.sqlite")
+    try:
+        incremental._seed_scope_freshness(
+            store, _scope([], tmp_path), tmp_path, changed_src=["src/x.py"], changed_tests=[], changed_support=[]
+        )
+        assert store.coverage_generation() is None
+    finally:
+        store.close()
+    assert capsys.readouterr().err == ""

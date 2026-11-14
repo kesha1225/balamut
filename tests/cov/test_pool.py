@@ -374,6 +374,26 @@ def test_eviction_ignores_an_unremovable_entry(tmp_path: Path) -> None:
     # The unremovable symlink entry was skipped: eviction still completed.
 
 
+def test_seed_skips_a_pool_build_whose_tree_record_is_gone(tmp_path: Path) -> None:
+    builder, seeded, pool = tmp_path / "builder", tmp_path / "seeded", tmp_path / "pool"
+    _source_tree(builder)
+    _source_tree(seeded)
+    coverage, published = _built(builder)
+    substrate_pool.pool_publish(pool, coverage, published)
+    substrate.tree_path(pool / published.generation / "substrate").unlink()
+
+    assert _seed(seeded, pool) is None
+    assert not (seeded / "coverage.substrate").exists()
+
+
+def test_seed_from_a_missing_pool_creates_nothing(tmp_path: Path) -> None:
+    seeded, pool = tmp_path / "seeded", tmp_path / "pool"
+    _source_tree(seeded)
+
+    assert _seed(seeded, pool) is None
+    assert not pool.exists()
+
+
 def test_pool_keep_is_pinned() -> None:
     importlib.reload(substrate_pool)
     assert substrate_pool.POOL_KEEP == 4

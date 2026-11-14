@@ -192,3 +192,16 @@ def test_parse_module_distinct_sources_distinct_trees() -> None:
 def test_parse_module_equivalent_to_ast_parse() -> None:
     src = "class C:\n    @property\n    def x(self):\n        return 1 + 2\n"
     assert ast.dump(parse_module(src)) == ast.dump(ast.parse(src))
+
+
+def test_a_qualname_that_ends_at_a_class_names_no_function() -> None:
+    src = "class C:\n    def m(self):\n        return 2\n"
+    assert hashing.function_source(src, "C") is None
+    assert hashing.function_start_lineno(src, "C") is None
+
+
+def test_a_locals_qualname_is_not_resolved() -> None:
+    # The qualname of a nested function carries `<locals>`: it is hashed through its top-level ancestor.
+    src = "def outer():\n    def inner():\n        return 1\n    return inner\n"
+    assert hashing.function_source(src, "outer.<locals>.inner") is None
+    assert hashing.function_start_lineno(src, "outer.<locals>.inner") is None

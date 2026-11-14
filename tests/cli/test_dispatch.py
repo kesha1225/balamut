@@ -92,6 +92,13 @@ def test_usage_aligns_summaries_to_the_longest_command() -> None:
     assert f"  {shortest:<{width}}  " in usage
 
 
+def test_usage_ends_with_the_per_command_help_hint() -> None:
+    last_command = list(cli.COMMANDS)[-1]
+    summary = cli.COMMANDS[last_command].summary
+
+    assert cli._usage().endswith(f"{summary}\n\nRun `balamut COMMAND --help` for the options of a command.\n")
+
+
 def test_root_without_a_command_is_a_usage_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """``--root DIR`` with no command shows the usage (not an unknown command for ``--root``)."""
     assert cli.dispatch(["--root", str(tmp_path)]) == 2

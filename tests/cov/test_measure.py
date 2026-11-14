@@ -236,6 +236,30 @@ def test_cleanup_failure_is_a_warning_not_a_failure(tmp_path: Path) -> None:
     assert "cleanup failed" in result.warnings[0]
 
 
+def test_a_broken_run_still_reports_the_cleanup_warning(tmp_path: Path) -> None:
+    _seed_tests(tmp_path, 2)
+    result = measure_coverage(
+        MeasureRequest(profile=_profile(tmp_path), coverage_file=tmp_path / "cov", workers=2),
+        isolation=FakeIsolation(fail_cleanup=True),
+        launcher=FakeLauncher(returncode=3),
+    )
+    assert result.returncode == 2
+    assert result.warnings == ("isolation cleanup failed: cleanup failed",)
+
+
+def test_isolated_run_without_test_files_measures_the_test_roots(tmp_path: Path) -> None:
+    launcher = FakeLauncher()
+    measure_coverage(
+        MeasureRequest(profile=_profile(tmp_path), coverage_file=tmp_path / "cov", workers=2),
+        isolation=FakeIsolation(),
+        launcher=launcher,
+    )
+    addopts = launcher.calls[0][1]["PYTEST_ADDOPTS"]
+    argfile = next(token[1:] for token in addopts.split() if token.startswith("@"))
+    assert len(launcher.calls) == 1
+    assert Path(argfile).read_text(encoding="utf-8").splitlines() == list(_profile(tmp_path).layout.tests)
+
+
 def test_generated_coverage_config_names_the_source_roots(tmp_path: Path) -> None:
     launcher = FakeLauncher()
     measure_coverage(
@@ -525,6 +549,21 @@ def test_measure_reports_an_infra_error_when_artifacts_cannot_merge(tmp_path: Pa
     )
     assert result.returncode == 2
     assert "missing" in result.detail
+
+
+def test_a_merge_failure_still_reports_the_cleanup_warning(tmp_path: Path) -> None:
+    class _NoopLauncher:
+        def __call__(self, _argv: list[str], _env: Mapping[str, str], _cwd: Path, _log: Path) -> measure.Launched:
+            return _Finished(0)
+
+    _seed_tests(tmp_path, 1)
+    result = measure_coverage(
+        MeasureRequest(profile=_profile(tmp_path), coverage_file=tmp_path / "cov", workers=1),
+        isolation=FakeIsolation(fail_cleanup=True),
+        launcher=_NoopLauncher(),
+    )
+    assert result.returncode == 2
+    assert result.warnings == ("isolation cleanup failed: cleanup failed",)
 
 
 class _FailingPrepareIsolation(FakeIsolation):

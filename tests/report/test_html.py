@@ -22,6 +22,7 @@ from balamut.report.html import (
     _delta,
     _duration,
     _pct,
+    _progress,
     _script_json,
     _Source,
     _trend,
@@ -174,11 +175,17 @@ def _valid_summary() -> Json:
         ({"scope": ["src", 3]}, "list of strings"),
         ({"history": {}}, "must be a list"),
         ({"files": {"a.py": {"killed": 1}}}, "non-negative integer"),
+        ({"project": 3}, r"summary\.project must be a string"),
     ],
 )
 def test_a_malformed_summary_is_rejected(change: Json, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         parse_summary({**_valid_summary(), **change})
+
+
+def test_a_summary_must_be_an_object() -> None:
+    with pytest.raises(ValueError, match="summary must be an object"):
+        parse_summary([])
 
 
 def test_a_summary_with_a_null_score_parses() -> None:
@@ -631,3 +638,182 @@ def test_long_survivor_samples_are_cut_to_a_readable_length() -> None:
     page = render_html([_result(long, MutantStatus.SURVIVED)], {PATH: SOURCE}, info=INFO)
     assert f'<span class="smp-del">{"x" * 120}</span>' in page
     assert f'<span class="smp-add">{"y" * 120}</span>' in page
+
+
+WIDE = "".join(f"def f{i}(v{i}: int) -> int:\n    return v{i} + {i}\n\n\n" for i in range(8))
+
+
+def _counted(*, killed: int = 0, survived: int = 0, no_coverage: int = 0, timeout: int = 0) -> list[MutantResult]:
+    mutants = iter(_mutants(WIDE))
+    results: list[MutantResult] = []
+    for status, count in (
+        (MutantStatus.KILLED, killed),
+        (MutantStatus.SURVIVED, survived),
+        (MutantStatus.NO_COVERAGE, no_coverage),
+        (MutantStatus.TIMEOUT, timeout),
+    ):
+        covering = () if status is MutantStatus.NO_COVERAGE else ("tests/t.py::test_a",)
+        results.extend(_result(next(mutants), status, covering_tests=covering) for _ in range(count))
+    return results
+
+
+def _page(results: list[MutantResult], baseline: ReportSummary | None = None) -> str:
+    return render_html(results, {PATH: WIDE}, info=INFO, baseline=baseline)
+
+
+def _tile_deltas(page: str) -> dict[str, str]:
+    found = re.findall(
+        r'<div class="tile"><div class="tile-label"><span class="dot v-\w+" aria-hidden="true"></span>([^<]+)</div>'
+        r'<div class="tile-value">\d+</div><div class="tile-note">[^<]*</div>(.*?)</div>',
+        page,
+    )
+    return dict(found)
+
+
+def test_a_delta_of_exactly_the_shown_precision_is_a_change() -> None:
+    assert _delta(0.05, 0, unit="pp", higher_is_better=True) == (
+        '<span class="delta up">&#9650; +0.1pp <em>better</em></span>'
+    )
+
+
+def test_the_tiles_carry_no_change_markers_without_a_baseline() -> None:
+    deltas = _tile_deltas(_page(_counted(killed=1, survived=1, no_coverage=1, timeout=1)))
+    assert deltas == {"Killed": "", "Survived": "", "No coverage": "", "Timeout": ""}
+
+
+def test_each_tile_and_row_states_whether_its_count_moved_the_right_way() -> None:
+    before = build_summary(_counted(killed=1, survived=1, no_coverage=2), INFO)
+    page = _page(_counted(killed=1, survived=3, no_coverage=1, timeout=2), before)
+
+    worse = '<span class="delta down">&#9650; +2 <em>worse</em></span>'
+    better = '<span class="delta up">&#9660; &minus;1 <em>better</em></span>'
+    assert _tile_deltas(page) == {
+        "Killed": '<span class="delta flat">no change</span>',
+        "Survived": worse,
+        "No coverage": better,
+        "Timeout": worse,
+    }
+    assert '<span class="delta down">&#9660; &minus;25.0pp <em>worse</em></span><span class="since">' in page
+    for label, then, now, delta in (
+        ("Survived", 1, 3, worse),
+        ("No coverage", 2, 1, better),
+        ("Timeout", 0, 2, worse),
+    ):
+        assert (
+            f'<tr><th scope="row">{label}</th><td class="num">{then}</td><td class="num">{now}</td>'
+            f"<td>{delta}</td></tr>" in page
+        )
+
+
+def test_a_run_without_a_score_compares_without_a_score_change() -> None:
+    scored = build_summary(_counted(killed=1), INFO)
+    unscored = build_summary(_counted(no_coverage=1), INFO)
+
+    after_unscored = _page(_counted(killed=1), unscored)
+    assert '<div class="score-delta"><span class="since">since ' in after_unscored
+    assert (
+        '<tr><th scope="row">Mutation score</th><td class="num">&mdash;</td><td class="num">100.0%</td><td></td></tr>'
+        in after_unscored
+    )
+    before_unscored = _page(_counted(no_coverage=1), scored)
+    assert '<div class="score-delta"><span class="since">since ' in before_unscored
+    assert (
+        '<tr><th scope="row">Mutation score</th><td class="num">100.0%</td><td class="num">&mdash;</td><td></td></tr>'
+        in before_unscored
+    )
+
+
+def test_without_a_baseline_there_is_no_progress_section() -> None:
+    assert _progress(build_summary(_counted(killed=1), INFO), None) == ""
+
+
+@pytest.mark.parametrize(
+    ("scope", "kinds", "noted"),
+    [(("src",), ("src",), False), (("src/other",), ("src",), True), (("src",), ("src", "extreme"), True)],
+)
+def test_the_progress_notes_a_baseline_with_another_scope_or_kinds(
+    scope: tuple[str, ...], kinds: tuple[str, ...], *, noted: bool
+) -> None:
+    before = build_summary(_counted(killed=1), replace(INFO, scope=scope, kinds=kinds))
+    assert ("the counts compare different sets of mutants" in _page(_counted(killed=1), before)) is noted
+
+
+def test_the_trend_places_its_axes_and_marks_the_last_run() -> None:
+    svg = _trend(
+        [
+            _point("2026-11-01T10:00:00+00:00", 0.5, "aaa"),
+            _point("2026-11-04T10:00:00+00:00", 0.83),
+            _point("2026-11-05T10:00:00+00:00", 0.9, "bbb"),
+        ]
+    )
+
+    assert '<line class="grid" x1="44" x2="616" y1="184.0" y2="184.0"></line>' in svg
+    assert re.findall(r'<text class="axis" x="(\d+)" y="([\d.]+)" text-anchor="end">', svg)[:2] == [
+        ("36", "188.0"),
+        ("36", "154.4"),
+    ]
+    assert re.findall(r'<text class="axis" x="[\d.]+" y="(\d+)" text-anchor="middle">', svg) == ["208"] * 3
+    assert re.findall(r'<circle class="(pt(?: last)?)" cx="[\d.]+" cy="[\d.]+" r="(\d)"', svg) == [
+        ("pt", "4"),
+        ("pt", "4"),
+        ("pt last", "6"),
+    ]
+    assert re.findall(r"<td><code>([^<]*)</code></td>", svg) == ["aaa", "-", "bbb"]
+
+
+def test_a_long_trend_labels_about_six_runs_and_always_the_last() -> None:
+    svg = _trend([_point(f"2026-11-{day:02d}T10:00:00+00:00", 0.5 + day / 100) for day in range(1, 15)])
+    assert re.findall(r'text-anchor="middle">([^<]+)</text>', svg) == [
+        f"{day:02d} Nov" for day in (1, 3, 5, 7, 9, 11, 13, 14)
+    ]
+
+
+def test_a_file_changes_against_a_baseline_score_in_percentage_points() -> None:
+    before = build_summary(_counted(killed=1, survived=1), INFO)
+    page = _page(_counted(killed=2), before)
+    assert 'data-delta="50.0000">' in page
+    row = re.search(r"<tr data-path=.*?</tr>", page, re.DOTALL)
+    assert row is not None
+    assert row.group(0).endswith('<td><span class="delta up">&#9650; +50.0pp <em>better</em></span></td></tr>')
+    assert '<button type="button" data-sort="delta">Change</button>' in page
+
+
+def test_without_a_baseline_the_files_table_has_no_change_column() -> None:
+    page = _page(_counted(killed=2))
+    assert 'data-sort="delta"' not in page
+    assert 'delta flat">new' not in page
+
+
+def test_a_group_of_exactly_six_sites_in_a_file_has_no_overflow_note() -> None:
+    source = "".join(f"def f{index}(a: int, b: int) -> bool:\n    return a < b\n\n\n" for index in range(6))
+    survivors = [_result(m, MutantStatus.SURVIVED) for m in _mutants(source) if m.original == "a < b"]
+    page = render_html(survivors, {PATH: source}, info=INFO)
+    assert page.count('class="site" href="#f0-l') == 6
+    assert 'class="more"' not in page
+
+
+def test_survivor_groups_beyond_the_cap_are_counted_in_a_note() -> None:
+    source = "".join(f"def f{i}(v{i}: int) -> int:\n    return v{i} + {i}\n\n\n" for i in range(14))
+    survivors = [
+        _result(m, MutantStatus.SURVIVED) for m in _mutants(source) if re.fullmatch(r"v\d+ \+ \d+", m.original)
+    ]
+    at_cap = render_html(survivors[:12], {PATH: source}, info=INFO)
+    over_cap = render_html(survivors[:13], {PATH: source}, info=INFO)
+
+    assert at_cap.count('class="cluster"') == 12
+    assert "smaller groups" not in at_cap
+    assert over_cap.count('class="cluster"') == 12
+    assert '<p class="note">1 smaller groups are in the files.</p>' in over_cap
+
+
+def test_a_failed_write_raises_its_own_error_and_leaves_no_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def refuse(self: Path, data: str, encoding: str | None = None) -> int:
+        del self, data, encoding
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", refuse)
+    with pytest.raises(OSError, match="disk full"):
+        write_html(tmp_path / "report.html", "page")
+    assert list(tmp_path.iterdir()) == []

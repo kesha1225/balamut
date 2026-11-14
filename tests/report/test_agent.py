@@ -162,6 +162,17 @@ def test_timeouts_are_unresolved_clusters_rendered_before_actionable() -> None:
     assert text.index("UNRESOLVED") < text.index("ACTIONABLE")
 
 
+def test_summary_counts_the_unresolved_timeouts() -> None:
+    records = [
+        _rec("src/timeout.py", 10, "compare:Lt->LtE", "timeout"),
+        _rec("src/a.py", 20, "compare:Lt->LtE", "killed"),
+    ]
+
+    summary = build_report(records)["summary"]
+
+    assert summary == "SCORE 100% | 0 actionable / 0 clusters | 0 uncovered | 1 timeout unresolved"
+
+
 def _reachable_not_schema(file: str, lineno: int) -> bool:
     _ = lineno
     return "schema" not in file  # schema.py -> cold (class-level), everything else -> function body

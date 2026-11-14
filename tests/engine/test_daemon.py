@@ -17,7 +17,7 @@ from typing import IO, Self
 import pytest
 
 from balamut.engine import daemon
-from balamut.engine.results import CampaignExactnessError, DaemonStaleError
+from balamut.engine.results import CampaignExactnessError, CampaignSetupError, DaemonStaleError
 from balamut.runtime.kill_deps import KILL_DEPS_SUFFIX
 from balamut.runtime.plugin import TOUCHED_MARKER_SUFFIX, MutantSpec, original_lease_deps, parse_mutant_spec
 from bm_support.daemons import FakeProcess, fake_daemon
@@ -58,6 +58,28 @@ def _client(frame: Frame, results: list[daemon.CompactResult] | None = None, cal
 
 def _no_wait_ready(_address: str, _proc: daemon.DaemonProcess, _deadline: float) -> None:
     return None
+
+
+@pytest.fixture(autouse=True)
+def _signals_stay_inside_the_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The pids of these tests are fakes: none of them may signal a real process.
+
+    A pid guard that stopped holding would otherwise reach the runner itself: ``os.getpgid(0)`` is the group of the
+    calling process, and a stale pid file names whatever process owns that number today. A test that needs a
+    signal call replaces these with its own recorder."""
+    real_kill = os.kill
+
+    def probe_only(pid: int, sig: int) -> None:
+        if sig != 0:
+            pytest.fail(f"a test sent signal {sig} to the real pid {pid}")
+        real_kill(pid, sig)
+
+    def no_process_group(*args: int) -> int:
+        pytest.fail(f"a test reached a real process group: {args}")
+
+    monkeypatch.setattr(daemon.os, "kill", probe_only)
+    monkeypatch.setattr(daemon.os, "killpg", no_process_group)
+    monkeypatch.setattr(daemon.os, "getpgid", no_process_group)
 
 
 def test_request_uses_compact_results_and_preserves_exact_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,21 +156,27 @@ def test_request_captures_exact_process_failure_evidence(monkeypatch: pytest.Mon
 
 
 @pytest.mark.parametrize(
-    "run_meta",
+    ("run_meta", "message"),
     [
-        {"process_failures": "tests/x_test.py::test_x"},
-        {"process_failures": [1]},
-        {"process_failures": ["tests/x_test.py::test_x", "tests/x_test.py::test_x"]},
-        {"process_failures": ["tests/other_test.py::test_other"]},
+        ({"process_failures": "tests/x_test.py::test_x"}, "malformed process-failure evidence"),
+        ({"process_failures": [1]}, "malformed process-failure evidence"),
+        (
+            {"process_failures": ["tests/x_test.py::test_x", "tests/x_test.py::test_x"]},
+            "duplicate process-failure evidence",
+        ),
+        (
+            {"process_failures": ["tests/other_test.py::test_other"]},
+            "a process-failure node id outside the requested subset",
+        ),
     ],
     ids=["not-a-list", "not-strings", "duplicates", "outside-the-subset"],
 )
 def test_request_rejects_malformed_process_failure_evidence(
-    monkeypatch: pytest.MonkeyPatch, run_meta: dict[str, object]
+    monkeypatch: pytest.MonkeyPatch, run_meta: dict[str, object], message: str
 ) -> None:
     monkeypatch.setattr(daemon, "request_run_results", _client({"rc": 1, "run_meta": run_meta}))
 
-    with pytest.raises(RuntimeError, match="process-failure"):
+    with pytest.raises(RuntimeError, match=message):
         daemon.request("sock", ["tests/x_test.py::test_x"], {}, [], stop_on_failure=True)
 
 
@@ -1149,7 +1177,9 @@ def test_spawn_pool_resolves_and_stores_the_idle_ttl(tmp_path: Path, monkeypatch
     custom[0].log.close()
 
 
-def test_await_pool_respawns_a_cleanly_exited_daemon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_await_pool_respawns_a_cleanly_exited_daemon(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     respawned: list[daemon.Daemon] = []
     monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
     monkeypatch.setattr(daemon, "wait_ready", _no_wait_ready)
@@ -1159,20 +1189,50 @@ def test_await_pool_respawns_a_cleanly_exited_daemon(tmp_path: Path, monkeypatch
     daemon.await_pool([alive, idle])
 
     assert respawned == [idle]
+    assert capsys.readouterr().err == "daemon idle idled out (exit 0); respawning it\n"
+
+
+def test_await_pool_keeps_awaiting_the_members_after_a_respawned_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    respawned: list[daemon.Daemon] = []
+    waited: list[str] = []
+
+    def fake_wait_ready(address: str, _proc: daemon.DaemonProcess, _deadline: float) -> None:
+        waited.append(address)
+
+    monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
+    monkeypatch.setattr(daemon, "wait_ready", fake_wait_ready)
+    idle = fake_daemon(tmp_path, address="idle", index=0, returncode=0)
+    alive = fake_daemon(tmp_path, address="alive", index=1)
+
+    daemon.await_pool([idle, alive])
+
+    assert respawned == [idle]
+    assert waited == ["alive"]
 
 
 def test_await_pool_raises_on_an_unclean_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     respawned: list[daemon.Daemon] = []
+    waited: list[str] = []
+
+    def fake_wait_ready(address: str, _proc: daemon.DaemonProcess, _deadline: float) -> None:
+        waited.append(address)
+
     monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
+    monkeypatch.setattr(daemon, "wait_ready", fake_wait_ready)
     broken = fake_daemon(tmp_path, returncode=3)
 
-    with pytest.raises(RuntimeError, match="died"):
+    with pytest.raises(RuntimeError, match=r"the pytest-fast daemon died \(exit 3\); see its log"):
         daemon.await_pool([broken])
 
     assert respawned == []
+    assert waited == [], "a dead daemon is reported without waiting for its socket"
 
 
-def test_await_pool_respawns_when_the_ttl_fires_mid_await(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_await_pool_respawns_when_the_ttl_fires_mid_await(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     respawned: list[daemon.Daemon] = []
     monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
     target = fake_daemon(tmp_path)
@@ -1186,6 +1246,22 @@ def test_await_pool_respawns_when_the_ttl_fires_mid_await(tmp_path: Path, monkey
     daemon.await_pool([target])
 
     assert respawned == [target]
+    assert capsys.readouterr().err == "daemon sock idled out (exit 0); respawning it\n"
+
+
+def test_await_pool_reraises_a_missed_ready_deadline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    respawned: list[daemon.Daemon] = []
+
+    def never_ready(address: str, _proc: daemon.DaemonProcess, _deadline: float) -> None:
+        raise RuntimeError(f"the daemon did not bind {address} in time")
+
+    monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
+    monkeypatch.setattr(daemon, "wait_ready", never_ready)
+
+    with pytest.raises(RuntimeError, match="the daemon did not bind sock in time"):
+        daemon.await_pool([fake_daemon(tmp_path)])
+
+    assert respawned == []
 
 
 def test_respawn_daemon_reuses_the_configured_idle_ttl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1432,6 +1508,228 @@ def test_guarded_run_warns_once_while_stalled_below_the_timeout(
     daemon.run_subset_guarded(fake_daemon(tmp_path), ["t"], {}, full=False, timeout=10.0, label="x")
 
     assert "".join(stderr.writes).count("stalled") == 1
+
+
+# ---------------------------------------------------------------------------
+# An adopted daemon: the pid-directed process surface and the adoption gaps.
+# ---------------------------------------------------------------------------
+
+
+def test_adopted_process_is_alive_while_its_pid_answers_the_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    probes: list[tuple[int, int]] = []
+
+    def alive(pid: int, sig: int) -> None:
+        probes.append((pid, sig))
+
+    monkeypatch.setattr(daemon.os, "kill", alive)
+    proc = daemon._AdoptedProcess(4321)
+
+    assert proc.pid == 4321
+    assert proc.poll() is None
+    assert proc.returncode is None
+    assert probes == [(4321, 0), (4321, 0)]
+
+
+def test_adopted_process_reports_a_vanished_pid_as_exited(monkeypatch: pytest.MonkeyPatch) -> None:
+    def gone(_pid: int, _sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(daemon.os, "kill", gone)
+    proc = daemon._AdoptedProcess(4321)
+
+    assert proc.poll() == 1
+    assert proc.returncode == 1
+
+
+def test_adopted_process_is_stopped_through_its_process_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    killed: list[daemon.DaemonProcess] = []
+    monkeypatch.setattr(daemon, "killpg", killed.append)
+    proc = daemon._AdoptedProcess(4321)
+
+    proc.terminate()
+    assert killed == [proc]
+    proc.kill()
+    assert killed == [proc, proc]
+
+
+def test_adopted_process_wait_polls_until_the_pid_is_gone(monkeypatch: pytest.MonkeyPatch) -> None:
+    probes: list[int] = []
+    sleeps: list[float] = []
+
+    def gone_on_the_third_probe(pid: int, _sig: int) -> None:
+        probes.append(pid)
+        if len(probes) == 3:
+            raise ProcessLookupError
+
+    def nap(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) > 2:
+            pytest.fail("the wait outlived its daemon")
+
+    monkeypatch.setattr(daemon.os, "kill", gone_on_the_third_probe)
+    monkeypatch.setattr(daemon.time, "sleep", nap)
+
+    assert daemon._AdoptedProcess(4321).wait() == 0
+    assert sleeps == [0.05, 0.05]
+
+
+def test_adopted_process_wait_times_out_at_its_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = iter([100.0, 104.0, 105.0])
+    sleeps: list[float] = []
+
+    def alive(_pid: int, _sig: int) -> None:
+        return None
+
+    monkeypatch.setattr(daemon.os, "kill", alive)
+    monkeypatch.setattr(daemon.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(daemon.time, "sleep", sleeps.append)
+
+    with pytest.raises(daemon.subprocess.TimeoutExpired) as caught:
+        daemon._AdoptedProcess(4321).wait(timeout=5)
+
+    assert caught.value.cmd == "adopted daemon"
+    assert caught.value.timeout == 5
+    assert sleeps == [0.05]
+
+
+def _persisted_pool(tmp_path: Path, pids: list[str]) -> tuple[str, Path]:
+    """A pool left by an earlier run: a bound socket and a pid file per daemon."""
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    base = str(tmp_path / "pool")
+    for index, pid in enumerate(pids):
+        Path(f"{base}.{index}").touch()
+        Path(f"{base}.{index}.pid").write_text(pid, encoding="utf-8")
+    return base, scratch
+
+
+@pytest.mark.parametrize("missing", ["", ".pid"], ids=["socket", "pid-file"])
+def test_adopt_pool_declines_a_daemon_without_its_socket_or_its_pid_file(tmp_path: Path, missing: str) -> None:
+    base, scratch = _persisted_pool(tmp_path, [str(os.getpid())])
+    Path(f"{base}.0{missing}").unlink()
+
+    assert daemon.adopt_pool(base, 1, 1, {}, scratch) is None
+
+
+def test_adopt_pool_declines_a_corrupt_pid_file(tmp_path: Path) -> None:
+    base, scratch = _persisted_pool(tmp_path, ["not-a-pid"])
+
+    assert daemon.adopt_pool(base, 1, 1, {}, scratch) is None
+
+
+def test_adopt_pool_declines_a_pid_that_no_longer_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base, scratch = _persisted_pool(tmp_path, ["4321"])
+
+    def gone(_pid: int, _sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(daemon.os, "kill", gone)
+
+    assert daemon.adopt_pool(base, 1, 1, {}, scratch) is None
+
+
+def test_adopt_pool_adopts_a_daemon_another_user_owns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base, scratch = _persisted_pool(tmp_path, ["4321\n"])
+    probes: list[tuple[int, int]] = []
+
+    def foreign(pid: int, sig: int) -> None:
+        probes.append((pid, sig))
+        raise PermissionError
+
+    monkeypatch.setattr(daemon.os, "kill", foreign)
+
+    pool = daemon.adopt_pool(base, 1, 1, {}, scratch, persist_workers=False)
+
+    assert pool is not None
+    for adopted in pool:
+        adopted.log.close()
+    assert [adopted.proc.pid for adopted in pool] == [4321]
+    assert [adopted.persist_workers for adopted in pool] == [False]
+    assert probes == [(4321, 0)]
+
+
+# ---------------------------------------------------------------------------
+# Pool lifecycle edges: a bound socket, missing isolation slots, the idle TTL
+# of a spawned daemon and the fresh-worker switch of an empty or crashed pool.
+# ---------------------------------------------------------------------------
+
+
+def test_wait_ready_returns_as_soon_as_the_socket_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    sock = tmp_path / "sock"
+    sock.touch()
+    clock = iter([0.0, 1.0, 2.0])
+    sleeps: list[float] = []
+    monkeypatch.setattr(daemon.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(daemon.time, "sleep", sleeps.append)
+
+    daemon.wait_ready(str(sock), FakeProcess(), deadline=1.5)
+
+    assert sleeps == []
+
+
+def test_spawn_pool_rejects_fewer_isolation_slots_than_daemons(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    scratch = tmp_path / "scratch"
+    spawned, _stale_killed = _spawn_pool_harness(monkeypatch, scratch)
+
+    with pytest.raises(CampaignSetupError, match="2 daemons need 2 isolation slots, got 1"):
+        daemon.spawn_pool("base", 2, 1, {}, ({"X": "1"},), scratch=scratch)
+
+    assert spawned == []
+
+
+def test_spawn_pool_starts_each_daemon_with_the_configured_idle_ttl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ttls: list[object] = []
+    stale_killed: list[str] = []
+
+    def fake_spawn(_address: str, *_args: object, **kwargs: object) -> FakeProcess:
+        ttls.append(kwargs["idle_ttl"])
+        return FakeProcess()
+
+    monkeypatch.setattr(daemon, "spawn_daemon", fake_spawn)
+    monkeypatch.setattr(daemon, "kill_stale_daemon", stale_killed.append)
+
+    pool = daemon.spawn_pool(str(tmp_path / "base"), 2, 1, {}, (), scratch=tmp_path / "scratch", idle_ttl=90)
+    for spawned in pool:
+        spawned.log.close()
+
+    assert ttls == [90, 90]
+
+
+def test_switching_an_empty_pool_to_fresh_workers_does_nothing() -> None:
+    daemon.switch_pool_to_fresh_workers([])
+
+
+def test_a_daemon_that_crashed_before_the_fresh_switch_is_respawned_and_switched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outcomes: list[RuntimeError | int] = [RuntimeError("the daemon is unreachable"), 0]
+    respawned: list[daemon.Daemon] = []
+
+    def fake_request(
+        _address: str,
+        _nodeids: list[str] | None,
+        _durations: daemon.CostMap,
+        _failures: list[str],
+        *,
+        stop_on_failure: bool,
+        fresh_workers: bool = False,
+    ) -> int:
+        _ = (stop_on_failure, fresh_workers)
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, RuntimeError):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(daemon, "request", fake_request)
+    monkeypatch.setattr(daemon, "respawn_daemon", respawned.append)
+    pool = [fake_daemon(tmp_path)]
+
+    daemon.switch_pool_to_fresh_workers(pool)
+
+    assert respawned == pool
+    assert outcomes == []
 
 
 # ---------------------------------------------------------------------------

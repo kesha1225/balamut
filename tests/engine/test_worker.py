@@ -21,6 +21,7 @@ from balamut.engine.partition import Work
 from balamut.engine.progress import CampaignProgress, ProgressMode
 from balamut.engine.results import (
     CampaignExactnessError,
+    CampaignScopeChangedError,
     DaemonStaleError,
     MutantResult,
     MutantStatus,
@@ -155,6 +156,54 @@ def test_timing_add_holds_its_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     timing.add(1.0, 1.0)
 
     assert lock.entered == 1
+
+
+def test_scope_abort_without_a_fatal_queue_raises_the_change() -> None:
+    with pytest.raises(CampaignScopeChangedError) as caught:
+        worker.campaign_scope_abort(None, ("src/x.py",))
+
+    assert caught.value.paths == ("src/x.py",)
+
+
+def test_worker_loop_raises_an_exactness_error_without_a_fatal_queue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending: queue.Queue[Work] = queue.Queue()
+    pending.put(work(0, mutant("src/x.py", 10)))
+
+    class FakeLease:
+        def __init__(self, **kwargs: object) -> None:
+            self.daemon = kwargs["daemon"]
+
+        def run(self, _item: Work) -> None:
+            raise CampaignExactnessError("no exact verdict")
+
+    monkeypatch.setattr(worker, "_Lease", FakeLease)
+
+    with pytest.raises(CampaignExactnessError, match="no exact verdict"):
+        worker.worker_loop(
+            fake_daemon(tmp_path),
+            pending,
+            {},
+            CampaignProgress(total=1, mode=ProgressMode.NONE),
+            worker.Timing(),
+            {},
+            None,
+            cross_kill=False,
+            mutant_timeout=8.0,
+            finalize_timeout=True,
+        )
+
+    assert pending.empty()
+
+
+def test_red_paired_original_without_evidence_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """rc 1 of the paired original with neither a failing report nor crash evidence proves nothing."""
+    item = work(0, mutant("src/x.py", 10))
+    _fake_guarded(monkeypatch, [RunResult(1, {}, ["tests/x_test.py::test_x"]), RunResult(1, {}, [])])
+
+    with pytest.raises(CampaignExactnessError, match="a paired original rc=1"):
+        _make_lease(fake_daemon(tmp_path)).run(item)
 
 
 def test_timing_defaults_are_zero() -> None:

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Self, cast
 
 import pytest
+from coverage import CoverageData
 
 from balamut.coverage import costs as pytest_costs
 from balamut.coverage import discovery, substrate
@@ -654,3 +655,37 @@ def test_tree_write_uses_compact_json(tmp_path: Path) -> None:
     assert ',"' in content
     assert ', "' not in content
     assert '": ' not in content
+
+
+def test_build_with_an_unreadable_coverage_file_is_rejected(tmp_path: Path) -> None:
+    coverage = tmp_path / "coverage.substrate"
+
+    def build(path: Path) -> int:
+        path.write_bytes(b"not a coverage database")
+        return 0
+
+    with pytest.raises(substrate.SubstrateBuildError, match="unreadable coverage file"):
+        substrate.substrate_ensure(coverage, _expected(), build=build)
+    assert not coverage.exists()
+
+
+def test_build_that_measured_no_file_is_rejected(tmp_path: Path) -> None:
+    coverage = tmp_path / "coverage.substrate"
+
+    def build(path: Path) -> int:
+        data = CoverageData(basename=str(path))
+        data.add_lines({})
+        data.write()
+        return 0
+
+    with pytest.raises(substrate.SubstrateBuildError, match="the coverage file has no measured files"):
+        substrate.substrate_ensure(coverage, _expected(), build=build)
+    assert not coverage.exists()
+
+
+def test_tree_read_rejects_the_tree_of_another_generation(tmp_path: Path) -> None:
+    coverage = tmp_path / "coverage.substrate"
+    substrate.tree_write(coverage, "generation-a", _measured_tree("h"))
+
+    assert substrate.tree_read(coverage, "generation-a") == _measured_tree("h")
+    assert substrate.tree_read(coverage, "generation-b") is None

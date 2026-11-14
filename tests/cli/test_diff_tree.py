@@ -245,6 +245,37 @@ def test_a_seeded_substrate_with_a_refreshable_drift_is_still_seeded_from(tmp_pa
     _return_code, report = run_main(scenario, runtime=runtime)
 
     assert _substrate(report)["seeded_from"] == "pooled-generation"
+    assert _substrate(report)["drift_files"] == 1
+
+
+def test_a_seed_that_never_saw_a_source_file_is_rebuilt(tmp_path: Path) -> None:
+    """No coverage history names the tests reaching a source file the seeded build did not know: a refresh cannot
+    repair it, so the seed is dropped for a build of this tree."""
+    _pool_tree(tmp_path)
+    pooled = _pooled(tmp_path)
+    scenario = Scenario(tmp_path, pool_seed=pooled)
+
+    def blind_seed(
+        _repo_root: Path,
+        path: Path,
+        _expected: substrate.SubstrateMetadata,
+        current: substrate.TreeRecord,
+        _in_diff: frozenset[str],
+    ) -> substrate.SubstrateMetadata | None:
+        scenario.events.append("substrate-seed")
+        known = {name: digest for name, digest in current.hashes.items() if name != "src/x.py"}
+        substrate.tree_write(path, pooled.generation, substrate.TreeRecord(hashes=known, reexports=current.reexports))
+        scenario.cached_metadata = pooled
+        return pooled
+
+    runtime = replace(scenario.runtime(), substrate_seed=blind_seed)
+
+    _return_code, report = run_main(scenario, runtime=runtime)
+
+    assert "coverage-build" in scenario.events
+    assert scenario.ensure_force is True
+    assert _substrate(report)["generation"] == "rebuilt-generation"
+    assert _substrate(report)["seeded_from"] is None
 
 
 def test_a_local_substrate_of_another_config_is_replaced_by_a_pooled_one(tmp_path: Path) -> None:
@@ -284,6 +315,50 @@ def test_an_empty_pool_falls_back_to_a_build_that_is_then_shared(tmp_path: Path)
     assert return_code == 0
     assert scenario.events.index("substrate-seed") < scenario.events.index("coverage-build")
     assert scenario.pool_shared == ["rebuilt-generation"]
+    assert _substrate(report)["seeded_from"] is None
+
+
+def test_a_build_is_shared_with_the_root_the_substrate_path_and_its_metadata(tmp_path: Path) -> None:
+    _pool_tree(tmp_path)
+    scenario = Scenario(tmp_path)
+    shared: list[tuple[Path, Path, substrate.SubstrateMetadata]] = []
+
+    def share(repo_root: Path, path: Path, published: substrate.SubstrateMetadata) -> None:
+        shared.append((repo_root, path, published))
+
+    run_main(scenario, runtime=replace(scenario.runtime(), substrate_share=share))
+
+    published = published_metadata(expected(tmp_path), generation="rebuilt-generation")
+    assert shared == [(project_profile(tmp_path).root, coverage_path(tmp_path), published)]
+
+
+def test_a_generation_a_neighbour_published_drops_the_drift_of_the_inspected_one(tmp_path: Path) -> None:
+    """Another run published while this one waited for the lock: the files counted against the generation this run
+    inspected say nothing about the published one, and the report names the rebuild as unexpected."""
+    _tree(tmp_path)
+    scenario = Scenario(
+        tmp_path, cached_metadata=_cached_with_recorded_tree(tmp_path), foreign_generation="foreign-generation"
+    )
+    write_file(tmp_path / "src/y.py", "def g() -> int:\n    return 3\n")
+
+    _return_code, report = run_main(scenario)
+
+    assert _substrate(report) == {
+        "generation": "foreign-generation",
+        "reused": False,
+        "miss_reason": "unexpected_rebuild",
+        "drift_files": 0,
+        "seeded_from": None,
+    }
+
+
+def test_a_generation_a_neighbour_published_is_not_attributed_to_the_seed(tmp_path: Path) -> None:
+    _pool_tree(tmp_path)
+    scenario = Scenario(tmp_path, pool_seed=_pooled(tmp_path), foreign_generation="foreign-generation")
+
+    _return_code, report = run_main(scenario)
+
+    assert _substrate(report)["generation"] == "foreign-generation"
     assert _substrate(report)["seeded_from"] is None
 
 

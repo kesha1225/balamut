@@ -14,11 +14,11 @@ import io
 import os
 import sys
 import threading
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterator, Mapping, ValuesView
 from contextlib import contextmanager
 from pathlib import Path
 from types import CodeType, GenericAlias, ModuleType, SimpleNamespace, UnionType
-from typing import cast
+from typing import Self, cast, override
 
 import pytest
 
@@ -154,6 +154,15 @@ def _killer_importing(statement: str) -> dict[str, str]:
             {},
             True,
             id="new-helper-beside-the-killer",
+        ),
+        # The killing file imports the source module it tests. A source module counts through the functions the run
+        # entered, never through the import closure of the test tree.
+        pytest.param(
+            _KILLER,
+            _replaced("src/x.py", "value + 1", "value + 2"),
+            {},
+            False,
+            id="source-module-imported-by-the-killer",
         ),
         # A nested function lives in the body of the outer one; same-named definitions (getter/setter, overload)
         # count together.
@@ -418,6 +427,55 @@ def test_recorder_writes_nothing_without_a_lease_target(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
+def test_flush_before_the_first_lease_writes_nothing(tmp_path: Path) -> None:
+    """A test can finish before any lease opened (a worker without a mutant file): there is no file to write to."""
+    recorder = kill_deps.DepsRecorder(tmp_path, modules={})
+    recorder.record(str(tmp_path / "src/config.py"), "load_settings")
+    recorder.flush()
+
+    assert list(tmp_path.iterdir()) == []
+
+
+class _CountingModules(Mapping[str, object]):
+    """Loaded modules that count how often the recorder lists them."""
+
+    def __init__(self, modules: dict[str, object]) -> None:
+        self.modules = modules
+        self.listed = 0
+
+    @override
+    def __getitem__(self, key: str) -> object:
+        return self.modules[key]
+
+    @override
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.modules)
+
+    @override
+    def __len__(self) -> int:
+        return len(self.modules)
+
+    @override
+    def values(self) -> ValuesView[object]:
+        self.listed += 1
+        return self.modules.values()
+
+
+def test_loaded_modules_are_listed_again_only_when_one_more_loaded(tmp_path: Path) -> None:
+    modules = _CountingModules({"pkg": _loaded(str(tmp_path / "src/pkg/__init__.py"))})
+    recorder = kill_deps.DepsRecorder(tmp_path, modules=modules)
+    recorder.lease_start(tmp_path / "lease.deps")
+    recorder.flush()
+    recorder.flush()
+    assert modules.listed == 1
+
+    modules.modules["tool"] = _loaded(str(tmp_path / "tools/cli.py"))
+    recorder.flush()
+    recorder.flush()
+    assert modules.listed == 2
+    assert kill_deps.kill_deps_read(tmp_path / "lease.deps") == (("src/pkg", "<dir>"), ("tools", "<dir>"))
+
+
 def _file_module(path: Path, name: str) -> ModuleType:
     """Execute a file as module ``name``: an import, as the recorder sees it."""
     spec = importlib.util.spec_from_file_location(name, path)
@@ -642,6 +700,59 @@ def test_kill_validity_current_holds_the_lock(tmp_path: Path) -> None:
     assert entered == [True]
 
 
+def test_warm_layout_reads_every_source_file_up_front(tmp_path: Path) -> None:
+    """The campaign's prep pays the parse once: a file read at warm time is not read again for a hash."""
+    _write_all(tmp_path, _TREE)
+    before = _validity(tmp_path, _X)
+    validity = kill_deps.KillValidity(make_layout(tmp_path), support_hash=_SUPPORT)
+
+    validity.warm_layout()
+    _write_all(tmp_path, _replaced("src/x.py", "timeout <= LIMIT", "timeout < LIMIT"))
+
+    assert validity.current(_X) == before
+    assert _validity(tmp_path, _X) != before
+
+
+def test_layout_files_are_the_python_files_under_the_source_roots(tmp_path: Path) -> None:
+    _write_all(tmp_path, {**_TREE, "src/pkg/notes.txt": "not a module\n"})
+    hasher = kill_deps.DependencyHasher(make_layout(tmp_path))
+
+    assert sorted(hasher.layout_files()) == sorted(path for path in _TREE if path.startswith("src/"))
+
+
+def test_warm_parses_only_unparsed_files_on_at_most_eight_threads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sizes: list[int] = []
+
+    class InlineExecutor:
+        """Runs the work in place and keeps the size each pool was asked for."""
+
+        def __init__(self, max_workers: int) -> None:
+            sizes.append(max_workers)
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def map(self, function: Callable[[str], object], items: list[str]) -> list[object]:
+            return [function(item) for item in items]
+
+    monkeypatch.setattr(kill_deps, "ThreadPoolExecutor", InlineExecutor)
+    files = [f"src/m{index:02}.py" for index in range(12)]
+    _write_all(tmp_path, dict.fromkeys(files, "VALUE = 1\n"))
+    hasher = kill_deps.DependencyHasher(make_layout(tmp_path))
+
+    hasher.warm(files[:2])
+    hasher.warm(files[:3])  # two of them are parsed already
+    hasher.warm(files[:3])  # nothing is left: no pool at all
+    hasher.warm(files)  # nine are left, the pool is capped
+
+    assert sizes == [2, 1, 8]
+
+
 def test_definitions_follow_nested_class_path() -> None:
     tree = ast.parse("class A:\n    class B:\n        def f(self):\n            pass\n")
     found = kill_deps._definitions(tree.body, ("A", "B", "f"))
@@ -715,6 +826,25 @@ def test_module_body_running_true_during_module_body(tmp_path: Path) -> None:
     assert results == [True]
 
 
+def test_function_called_by_a_test_module_body_stays_out_of_the_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The import closure of a kill holds a test module in full, the helpers its body calls included: recorded as
+    functions too, they would only repeat it."""
+    recorder = kill_deps.DepsRecorder(tmp_path, modules={})
+    recorder.lease_start(tmp_path / "lease.deps")
+    helper = ModuleType("_probe_helper")
+    vars(helper)["check"] = lambda: recorder.record(str(tmp_path / "tests/helpers.py"), "cases")
+    monkeypatch.setitem(sys.modules, "_probe_helper", helper)
+    lazy = write_file(tmp_path / "tests/lazy_test.py", "import _probe_helper\n_probe_helper.check()\n")
+
+    _file_module(lazy, "probe_lazy_test")
+    recorder.record(str(tmp_path / "src/x.py"), "valid")
+    recorder.flush()
+
+    assert kill_deps.kill_deps_read(tmp_path / "lease.deps") == (("src/x.py", "valid"),)
+
+
 def test_decode_empty_list_is_none() -> None:
     assert kill_deps.kill_deps_decode("[]") is None
 
@@ -768,6 +898,40 @@ def test_monitoring_on_start_records_only_optimized_functions(monkeypatch: pytes
     recorder.flush()
     disarm()
     assert kill_deps.kill_deps_read(tmp_path / "lease.deps") == (("src/m.py", "f"),)
+
+
+@pytest.mark.parametrize("damaged", [None, SimpleNamespace()], ids=["no-namespace", "no-flag"])
+def test_monitoring_on_start_ends_quietly_on_a_damaged_inspect_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, damaged: SimpleNamespace | None
+) -> None:
+    """balamut mutating itself can None the module this callback reads its flag from, or the flag: the event is
+    dropped there instead of raising into the code being monitored."""
+    recorder = kill_deps.DepsRecorder(tmp_path, modules={})
+    recorder.lease_start(tmp_path / "lease.deps")
+    captured: dict[str, Callable[[CodeType | None, int], object]] = {}
+
+    def register_callback(_tool_id: int, _event: object, func: Callable[[CodeType | None, int], object]) -> None:
+        captured["func"] = func
+
+    monkeypatch.setattr(sys.monitoring, "use_tool_id", _noop)
+    monkeypatch.setattr(sys.monitoring, "register_callback", register_callback)
+    monkeypatch.setattr(sys.monitoring, "set_events", _noop)
+    monkeypatch.setattr(sys.monitoring, "free_tool_id", _noop)
+    disarm = kill_deps.monitoring_arm(recorder)
+    assert disarm is not None
+    on_start = captured["func"]
+    module_code = compile("def f():\n    return 1\n", str(tmp_path / "src/m.py"), "exec")
+    f_code = next(const for const in module_code.co_consts if isinstance(const, CodeType))
+
+    # The stand-in stays for this one event: the callbacks of a campaign's own recorder read the same name.
+    with monkeypatch.context() as patch:
+        patch.setattr(kill_deps, "_INSPECT", damaged)
+        signal = on_start(f_code, 0)
+
+    recorder.flush()
+    disarm()
+    assert signal is sys.monitoring.DISABLE
+    assert not (tmp_path / "lease.deps").exists()
 
 
 def test_relative_munges_separators_to_forward_slashes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

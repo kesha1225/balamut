@@ -19,6 +19,7 @@ import pytest
 from _pytest.config import Config
 from _pytest.nodes import Item
 from _pytest.reports import CollectReport, TestReport
+from _pytest.stash import Stash
 from coverage import Coverage, CoverageData
 
 from balamut.coverage import costs, failures, fast_plugin
@@ -288,6 +289,128 @@ def test_pytest_configure_ignores_an_empty_path(tmp_path: Path, monkeypatch: pyt
     assert registered == []
 
 
+def test_failed_nodeids_read_rejects_another_schema_version(tmp_path: Path) -> None:
+    path = tmp_path / "f.json"
+    path.write_text('{"schema_version":2,"failed_nodeids":["tests/x_test.py::test_x"]}', encoding="utf-8")
+
+    assert failures.failed_nodeids_read(path) == ()
+
+
+def test_failed_nodeids_read_rejects_node_ids_that_are_not_a_list(tmp_path: Path) -> None:
+    # A bare string would otherwise be read character by character, each a "valid" node id.
+    path = tmp_path / "f.json"
+    path.write_text('{"schema_version":1,"failed_nodeids":"tests/x_test.py::test_x"}', encoding="utf-8")
+
+    assert failures.failed_nodeids_read(path) == ()
+
+
+def test_worker_failure_merge_rejects_two_shards_of_one_worker(tmp_path: Path) -> None:
+    path = tmp_path / "baseline-failures.json"
+    failures.worker_artifact_write(path, worker_key="s0gw0", process_id=101, failed_nodeids=set())
+    failures.worker_artifact_write(path, worker_key="s0gw0", process_id=102, failed_nodeids=set())
+
+    with pytest.raises(failures.FailureArtifactError, match="duplicate failure shard for s0gw0"):
+        failures.combine_worker_artifacts(path, expected=frozenset({"s0gw0"}))
+
+
+def test_worker_failure_merge_expects_at_least_one_worker(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="at least one worker is expected"):
+        failures.combine_worker_artifacts(tmp_path / "baseline-failures.json", expected=frozenset())
+
+
+def test_worker_failure_merge_rejects_a_damaged_shard(tmp_path: Path) -> None:
+    path = tmp_path / "baseline-failures.json"
+    (tmp_path / "baseline-failures.json.s0gw0.101.json").write_text("not json", encoding="utf-8")
+
+    with pytest.raises(failures.FailureArtifactError, match="invalid failure shard for s0gw0"):
+        failures.combine_worker_artifacts(path, expected=frozenset({"s0gw0"}))
+
+
+def test_worker_shutdown_requires_the_failure_collector() -> None:
+    config, _ = _fake_config()
+
+    with pytest.raises(RuntimeError, match="baseline failure collector is missing"):
+        failures.pytest_fast_worker_shutdown(config, "gw0")
+
+
+def test_configure_worker_does_nothing_without_a_coverage_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(fast_plugin.COVERAGE_FILE_ENV, raising=False)
+    stash: dict[object, object] = {}
+
+    fast_plugin.pytest_fast_configure_worker(cast("Config", SimpleNamespace(stash=stash)), "gw0")
+
+    assert stash == {}
+
+
+def test_configure_worker_requires_the_cost_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(fast_plugin.COVERAGE_FILE_ENV, str(tmp_path / "coverage.substrate"))
+    monkeypatch.delenv(fast_plugin.COST_FILE_ENV, raising=False)
+    monkeypatch.setattr(fast_plugin, "Coverage", _FakeCoverage)
+
+    with pytest.raises(RuntimeError, match=f"{fast_plugin.COST_FILE_ENV} is required for forkserver coverage"):
+        fast_plugin.pytest_fast_configure_worker(cast("Config", SimpleNamespace(stash={})), "gw0")
+
+
+def test_source_roots_are_the_resolved_source_option(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert fast_plugin._source_roots(Coverage(config_file=False, source=["src", "lib"])) == (
+        (tmp_path / "src").resolve(),
+        (tmp_path / "lib").resolve(),
+    )
+    assert fast_plugin._source_roots(Coverage(config_file=False)) == ()
+
+
+def test_worker_shutdown_does_nothing_without_worker_state() -> None:
+    stash: dict[object, object] = {}
+
+    fast_plugin.pytest_fast_worker_shutdown(cast("Config", SimpleNamespace(stash=stash)), "gw0")
+
+    assert stash == {}
+
+
+def test_worker_shutdown_rejects_the_state_of_another_worker(tmp_path: Path) -> None:
+    fake = _FakeCoverage()
+    state = fast_plugin._WorkerCoverageState(
+        coverage=cast("Coverage", fake), suffix="s0gw1.1", cost_file=tmp_path / "costs.json", cache_clears=()
+    )
+    config = cast("Config", SimpleNamespace(stash={fast_plugin._WORKER_STATE: state}))
+
+    with pytest.raises(RuntimeError, match="suffix does not match the worker id"):
+        fast_plugin.pytest_fast_worker_shutdown(config, "gw0")
+    assert fake.events == []
+
+
+def test_combine_rejects_two_coverage_shards_of_one_worker(tmp_path: Path) -> None:
+    _write_coverage_shard(tmp_path / "coverage.substrate.s0gw0.100", "test_a", {1})
+    _write_coverage_shard(tmp_path / "coverage.substrate.s0gw0.101", "test_b", {2})
+    write_costs(tmp_path / "coverage.costs.json.s0gw0.100.json", {"test_a": 0.2})
+
+    with pytest.raises(fast_plugin.CoverageArtifactError, match="duplicate shard for s0gw0"):
+        fast_plugin.combine_worker_artifacts(
+            tmp_path / "coverage.substrate", tmp_path / "coverage.costs.json", expected=frozenset({"s0gw0"})
+        )
+
+
+def test_combine_expects_at_least_one_worker(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="at least one worker is expected"):
+        fast_plugin.combine_worker_artifacts(
+            tmp_path / "coverage.substrate", tmp_path / "coverage.costs.json", expected=frozenset()
+        )
+
+
+def test_combine_rejects_a_damaged_cost_shard(tmp_path: Path) -> None:
+    _write_coverage_shard(tmp_path / "coverage.substrate.s0gw0.100", "test_a", {1})
+    (tmp_path / "coverage.costs.json.s0gw0.100.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(
+        fast_plugin.CoverageArtifactError, match=r"invalid cost shard coverage\.costs\.json\.s0gw0\.100\.json"
+    ):
+        fast_plugin.combine_worker_artifacts(
+            tmp_path / "coverage.substrate", tmp_path / "coverage.costs.json", expected=frozenset({"s0gw0"})
+        )
+
+
 def test_failure_schema_version_is_pinned() -> None:
     collector = failures.FailureCollector
     try:
@@ -476,6 +599,50 @@ def test_runtest_protocol_clears_the_source_caches_before_each_test(
 
     assert module.rate.cache_info().currsize == 0
     assert fake.events == ["context:tests/test_rates.py::test_rate"]
+
+
+def test_source_cache_clears_take_a_module_under_any_one_of_the_roots(
+    tmp_path: Path, load_module: Callable[[Path, str], types.ModuleType]
+) -> None:
+    module = load_module(
+        tmp_path / "src/pkg/rates.py", "from functools import cache\n\n@cache\ndef rate():\n    return 1\n"
+    )
+    module.rate()
+
+    clears = fast_plugin.source_cache_clears(((tmp_path / "lib").resolve(), (tmp_path / "src").resolve()))
+    for cache_clear in clears:
+        cache_clear()
+
+    assert module.rate.cache_info().currsize == 0
+
+
+def test_source_cache_clears_skip_a_module_without_a_source_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The cached function was compiled under a measured path, but its module has no ``__file__`` of its own.
+    module = types.ModuleType("bm_cache_no_file")
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    source = "from functools import cache\n\n@cache\ndef rate():\n    return 1\n"
+    exec(compile(source, str(tmp_path / "src/pkg/rates.py"), "exec"), module.__dict__)
+
+    assert fast_plugin.source_cache_clears(((tmp_path / "src").resolve(),)) == ()
+
+
+def test_worker_state_is_configured_and_dropped_on_a_real_stash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fast_plugin, "Coverage", _FakeCoverage)
+    monkeypatch.setenv(fast_plugin.COVERAGE_FILE_ENV, str(tmp_path / "coverage.substrate"))
+    monkeypatch.setenv(fast_plugin.COST_FILE_ENV, str(tmp_path / "coverage.costs.json"))
+    monkeypatch.setenv(fast_plugin.SLOT_ENV, "0")
+    config = cast("Config", SimpleNamespace(stash=Stash()))
+
+    fast_plugin.pytest_fast_configure_worker(config, "gw0")
+    assert config.stash.get(fast_plugin._WORKER_STATE, None) is not None
+    fast_plugin.pytest_fast_worker_shutdown(config, "gw0")
+
+    assert config.stash.get(fast_plugin._WORKER_STATE, None) is None
+    fast_plugin.pytest_fast_worker_shutdown(config, "gw0")
 
 
 def test_combine_worker_artifacts_merges_contexts_and_costs(tmp_path: Path) -> None:

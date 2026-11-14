@@ -588,6 +588,22 @@ def test_main_without_a_scope_resolves_the_base_directly(
     assert capsys.readouterr().out.startswith("✅ diff gate clean vs origin/release")
 
 
+def test_main_without_a_base_gates_against_origin_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    mutants_path = tmp_path / "mutants.json"
+    mutants_path.write_text("[]", encoding="utf-8")
+    bases: list[str] = []
+
+    def resolve(base_ref: str, *, repo_root: Path, base_mode: diff_scope.BaseMode) -> DiffScope:
+        bases.append(base_ref)
+        return DiffScope(base_ref, "b", "d", "h", {}, {})
+
+    monkeypatch.setattr(diff_scope, "resolve_scope", resolve)
+
+    assert main(["--json", str(mutants_path)]) == 0
+    assert bases == ["origin/main"]
+
+
 # --- accept rules ------------------------------------------------------------------------------------
 
 _NESTED = """\

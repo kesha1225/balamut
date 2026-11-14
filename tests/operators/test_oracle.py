@@ -9,7 +9,7 @@ import textwrap
 from balamut.operators import oracle as oracle_module
 from balamut.operators.facts import EnumContext
 from balamut.operators.kit import And
-from balamut.operators.oracle import _RAISES_KEY, RaisesExc, enumerate_oracle
+from balamut.operators.oracle import _RAISES_KEY, RaisesExc, _BoundaryFind, enumerate_oracle
 
 
 def test_oracle_excludes_non_test_methods_in_test_class() -> None:
@@ -33,6 +33,15 @@ def test_oracle_raises_skips_starred_exception() -> None:
     raises = [m for m in enumerate_oracle("x_test.py", src) if m.operator == "pytest:raises"]
 
     assert raises == []
+
+
+def test_boundary_finder_ignores_a_node_that_is_not_an_assert() -> None:
+    src = "x = a <= b\n"
+    tree = ast.parse(src)
+    ctx = EnumContext("x_test.py", src.encode("utf-8"), [0], frozenset())
+    assign = next(node for node in ast.walk(tree) if isinstance(node, ast.Assign))
+
+    assert list(_BoundaryFind().find(assign, ctx)) == []
 
 
 def test_oracle_class_body_reexecutes() -> None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import fnmatch
 import importlib.util
+import re
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -152,6 +153,24 @@ class QueueFamily:
 
 
 @dataclass(frozen=True, slots=True)
+class Accept:
+    """A mutation the project accepts unkilled: a reviewed decision that no test is owed for it.
+
+    The gate reports an accepted mutant apart and never fails on it: an equivalent mutant (no test can tell it
+    from the original) or an optimisation whose removal changes no result. ``reason`` is mandatory and says why.
+    Every other field narrows the rule, and an empty one matches anything: ``path`` is the file relative to the
+    project root, ``function`` the qualified name of the enclosing function (``Class.method``), ``operator`` an
+    operator name or a prefix of one, ``original`` the mutated source text as a report prints it (runs of
+    whitespace compare as one space) or a compiled pattern that text must match in full."""
+
+    reason: str
+    path: str = ""
+    function: str = ""
+    operator: str = ""
+    original: str | re.Pattern[str] = ""
+
+
+@dataclass(frozen=True, slots=True)
 class OperatorSettings:
     # The cross-kind survivor tagging policy: class -> source tokens. Kind data lives in the config file's
     # KINDS registry (facts are constructed there, with their data), not here.
@@ -176,6 +195,7 @@ class Profile:
     coverage: CoverageSettings = field(default_factory=CoverageSettings)
     isolation: IsolationSettings = field(default_factory=IsolationSettings)
     operators: OperatorSettings = field(default_factory=OperatorSettings)
+    accept: tuple[Accept, ...] = ()
 
     @property
     def root(self) -> Path:
@@ -225,12 +245,14 @@ def init(
     semantic: SemanticPatterns | None = None,
     register: KindRegistry | None = None,
     remove: frozenset[str] | None = None,
+    accept: tuple[Accept, ...] = (),
 ) -> None:
     """The config file's one call: declare the whole project.
 
     ``source``/``tests``/``state_dir`` are relative to the project root; ``import_roots`` defaults
     to ``("src",)`` when a ``src`` directory exists, else ``("." ,)``. ``register`` maps kind names
-    to their tuples of facts (import them right here); ``remove`` opts out of built-in kinds."""
+    to their tuples of facts (import them right here); ``remove`` opts out of built-in kinds;
+    ``accept`` lists the mutations the gate never fails on, each with its reason."""
     resolved = _PENDING_ROOT.get("root")
     if resolved is None:
         raise ProfileError("init(...) may only be called from the config file")
@@ -258,6 +280,7 @@ def init(
         coverage=CoverageSettings(concurrency=coverage_concurrency, workers_cap=coverage_workers_cap),
         isolation=isolation if isolation is not None else IsolationSettings(),
         operators=OperatorSettings(semantic=semantic if semantic is not None else DEFAULT_SEMANTIC),
+        accept=accept,
     )
     registry = _registry(register)
     _validate_profile(profile, registered=frozenset(registry))
@@ -418,3 +441,8 @@ def _validate_profile(profile: Profile, *, registered: frozenset[str] = frozense
         raise ProfileError("isolation.env is required for postgres-template (names of the DB_* variables)")
     if isolation.kind is IsolationKind.SHELL and not isolation.prepare:
         raise ProfileError("isolation.prepare is required for shell isolation")
+    for index, rule in enumerate(profile.accept):
+        if not rule.reason.strip():
+            raise ProfileError(f"accept[{index}]: a reason is required")
+        if not (rule.path or rule.function or rule.operator or rule.original):
+            raise ProfileError(f"accept[{index}]: name a path, a function, an operator or an original text")

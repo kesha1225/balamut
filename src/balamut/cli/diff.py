@@ -188,6 +188,7 @@ class RunState:
     scope_drift: list[str] = field(default_factory=list[str])
     invocation: JsonObject = field(default_factory=dict[str, JsonValue])
     evaluations: list[JsonObject] = field(default_factory=list[JsonObject])
+    accepted: list[JsonObject] = field(default_factory=list[JsonObject])
     counts: Counts = field(default_factory=_initial_counts)
     timings: Timings = field(default_factory=_initial_timings)
 
@@ -428,6 +429,7 @@ def report_build(
     drift: list[JsonValue] = [*state.scope_drift]
     tests: list[JsonValue] = [*state.baseline_failure_tests]
     evaluations: list[JsonValue] = [dict(evaluation) for evaluation in state.evaluations]
+    accepted: list[JsonValue] = [dict(row) for row in state.accepted]
     return {
         "status": status.value,
         "scope": _report_scope(state.scope),
@@ -443,6 +445,7 @@ def report_build(
         "counts": {**state.counts},
         "baseline_failure": {"cached": state.baseline_failure_cached, "tests": tests},
         "findings": serialized,
+        "accepted": accepted,
         "evaluations": evaluations,
         "timings": {name: round(seconds, 6) for name, seconds in state.timings.items()},
         "failure_stage": state.failure_stage,
@@ -536,6 +539,21 @@ def _finding(mutant: diff_gate.Mutant) -> JsonObject:
         "original": mutant.original,
         "mutated": mutant.mutated,
         "covering_tests": covering,
+    }
+
+
+def _accepted_row(accepted: diff_gate.Accepted) -> JsonObject:
+    """A mutant an accept rule keeps out of the gate, with the rule's reason."""
+    mutant = accepted.mutant
+    return {
+        "key": mutant.key,
+        "path": mutant.path,
+        "line": mutant.site_lineno,
+        "operator": mutant.operator,
+        "status": mutant.status.value,
+        "original": mutant.original,
+        "mutated": mutant.mutated,
+        "reason": accepted.rule.reason,
     }
 
 
@@ -1099,8 +1117,9 @@ class _Run:
             stats = _mutation_stats(stats_path)
             _raw_validate(mutants, stats)
             state.evaluations = _scoped_evaluations(mutants, scope)
-            result = diff_gate.gate(mutants, scope, root=self.root)
+            result = diff_gate.gate(mutants, scope, root=self.root, accept=self.profile.accept)
             findings = [_finding(mutant) for mutant in (*result.unresolved, *result.actionable, *result.uncovered)]
+            state.accepted = [_accepted_row(accepted) for accepted in result.accepted]
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             state.timings["gate"] = self.runtime.clock() - started
             sys.stderr.write(f"balamut diff: the mutation artifacts are invalid: {exc}\n")
@@ -1237,6 +1256,9 @@ def render_human(report: JsonMapping) -> str:
             for other, operator, other_reason in outcomes
         )
         lines.append(f"MIXED {path}:{line} [{detailed}]")
+    accepted = report.get("accepted")
+    if isinstance(accepted, list) and accepted:
+        lines.append(f"accepted: {len(accepted)} by the project's accept rules (not gated)")
     error_detail = report.get("error_detail")
     if isinstance(error_detail, str) and error_detail:
         lines.append(f"detail: {error_detail}")

@@ -4,14 +4,24 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 from pathlib import Path
 
 import pytest
 
+from balamut.config import Accept
 from balamut.core.triage import ColdKind
 from balamut.diff import gate
 from balamut.diff import scope as diff_scope
-from balamut.diff.gate import Mutant, classify, main, parse_mutants, render
+from balamut.diff.gate import (
+    Mutant,
+    accepting_rule,
+    classify,
+    enclosing_function,
+    main,
+    parse_mutants,
+    render,
+)
 from balamut.diff.scope import DiffScope, changed_lines_from_diff, mark_untracked_whole
 from balamut.report.agent import build_report
 
@@ -576,6 +586,225 @@ def test_main_without_a_scope_resolves_the_base_directly(
     assert main(["--json", str(mutants_path), "--base", "origin/release"]) == 0
     assert calls == [("origin/release", Path.cwd(), diff_scope.BaseMode.DIRECT)]
     assert capsys.readouterr().out.startswith("✅ diff gate clean vs origin/release")
+
+
+# --- accept rules ------------------------------------------------------------------------------------
+
+_NESTED = """\
+class Queue:
+    def take(self, items):
+        for item in items:
+            if item:
+                break
+        return max(1, len(items))
+
+
+def helper(values):
+    def inner(value):
+        return value < 1
+
+    return [inner(value) for value in values]
+
+
+LIMIT = 3
+
+if LIMIT:
+
+    def guarded():
+        return LIMIT
+"""
+
+
+def _no_file(_file: str) -> None:
+    return None
+
+
+def _nested(_file: str) -> str:
+    return _NESTED
+
+
+@pytest.mark.parametrize(
+    ("lineno", "expected"),
+    [
+        (1, ""),  # the class statement: no function holds it
+        (2, "Queue.take"),  # the def line belongs to the function
+        (5, "Queue.take"),
+        (6, "Queue.take"),  # the last line of the function
+        (7, ""),
+        (9, "helper"),
+        (11, "helper.inner"),  # the innermost function wins
+        (13, "helper"),
+        (16, ""),  # module level
+        (21, "guarded"),  # a function defined under a compound statement
+    ],
+)
+def test_enclosing_function_names_the_innermost_function_of_a_line(lineno: int, expected: str) -> None:
+    assert enclosing_function(_NESTED, lineno) == expected
+
+
+def test_enclosing_function_of_an_unparsable_source_is_empty() -> None:
+    assert enclosing_function("def broken(:\n    pass\n", 2) == ""
+
+
+def test_accepted_high_survivor_leaves_the_gate_with_its_rule() -> None:
+    rule = Accept(reason="the bound is inclusive either way", operator="compare:Lt->LtE")
+    mutants = _mutants(_rec("src/a.py", 5, "survived", "high"))
+
+    result = classify(mutants, {"src/a.py": (5,)}, accept=(rule,))
+
+    (accepted,) = result.accepted
+    assert accepted.mutant is mutants[0]
+    assert accepted.rule is rule
+    assert result.actionable == []
+    assert not result.failed()
+
+
+def test_nothing_is_accepted_without_rules() -> None:
+    result = classify(_mutants(_rec("src/a.py", 5, "survived", "high")), {"src/a.py": (5,)})
+
+    assert result.accepted == []
+    assert len(result.actionable) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "bucket"),
+    [("survived", "high"), ("survived", "review"), ("no_coverage", ""), ("timeout", "")],
+)
+def test_every_open_verdict_can_be_accepted(status: str, bucket: str) -> None:
+    rule = Accept(reason="why", path="src/a.py")
+
+    result = classify(_mutants(_rec("src/a.py", 5, status, bucket)), {"src/a.py": (5,)}, accept=(rule,))
+
+    assert len(result.accepted) == 1
+    assert (result.unresolved, result.actionable, result.uncovered, result.review) == ([], [], [], [])
+
+
+def test_a_killed_mutant_stays_killed_under_an_accept_rule() -> None:
+    rule = Accept(reason="why", path="src/a.py")
+
+    result = classify(_mutants(_rec("src/a.py", 5, "killed")), {"src/a.py": (5,)}, accept=(rule,))
+
+    assert result.accepted == []
+    assert result.killed == 1
+
+
+def test_an_accept_rule_outside_the_scope_accepts_nothing() -> None:
+    rule = Accept(reason="why", path="src/a.py")
+
+    result = classify(_mutants(_rec("src/a.py", 9, "survived", "high")), {"src/a.py": (5,)}, accept=(rule,))
+
+    assert result.accepted == []
+
+
+@pytest.mark.parametrize(
+    ("rule", "accepted"),
+    [
+        (Accept(reason="why", path="src/a.py"), True),
+        (Accept(reason="why", path="src/b.py"), False),
+        (Accept(reason="why", path="a.py"), False),  # the whole relative path, not its tail
+        (Accept(reason="why", operator="compare:Lt->LtE"), True),
+        (Accept(reason="why", operator="compare:"), True),  # a prefix of the operator name
+        (Accept(reason="why", operator="Lt->LtE"), False),  # a prefix, not a fragment
+        (Accept(reason="why", operator="compare:Gt"), False),
+        (Accept(reason="why", original="a < b"), True),
+        (Accept(reason="why", original="  a   <\n b "), True),  # runs of whitespace compare as one space
+        (Accept(reason="why", original="a <= b"), False),
+        (Accept(reason="why", original="a<b"), False),  # whitespace is collapsed, never removed
+        (Accept(reason="why", original=re.compile(r"\w < \w")), True),  # a pattern over the whole text
+        (Accept(reason="why", original=re.compile(r"\w <")), False),  # in full, not a prefix
+        (Accept(reason="why", original=re.compile(r"< \w")), False),  # nor a suffix
+        (Accept(reason="why", original=re.compile(r"\w > \w")), False),
+        (Accept(reason="why", function="Queue.take"), True),
+        (Accept(reason="why", function="take"), False),  # the qualified name
+        (Accept(reason="why", function="helper"), False),
+        (Accept(reason="why", path="src/a.py", operator="compare:Gt"), False),  # every named field must match
+        (Accept(reason="why", path="src/b.py", operator="compare:Lt"), False),
+        (Accept(reason="why", operator="compare:Lt", original="a <= b"), False),
+        (Accept(reason="why", original="a < b", function="helper"), False),
+        (Accept(reason="why", path="src/a.py", function="Queue.take", operator="compare:Lt", original="a < b"), True),
+    ],
+)
+def test_an_accept_rule_names_a_mutant_by_every_field_it_sets(rule: Accept, accepted: bool) -> None:
+    (mutant,) = _mutants(_rec("src/a.py", 5, "survived", "high"))
+
+    assert (accepting_rule(mutant, (rule,), _nested) is rule) is accepted
+
+
+@pytest.mark.parametrize(
+    "skipped",
+    [
+        Accept(reason="another file", path="src/b.py"),
+        Accept(reason="another operator", operator="compare:Gt"),
+        Accept(reason="another text", original="a > b"),
+        Accept(reason="another function", function="helper"),
+    ],
+)
+def test_a_rule_that_does_not_match_is_skipped_and_the_first_match_is_reported(skipped: Accept) -> None:
+    first = Accept(reason="first", path="src/a.py")
+    second = Accept(reason="second", operator="compare:")
+    (mutant,) = _mutants(_rec("src/a.py", 5, "survived", "high"))
+
+    assert accepting_rule(mutant, (skipped, first, second), _nested) is first
+
+
+def test_an_accept_pattern_sees_the_text_with_whitespace_collapsed() -> None:
+    rule = Accept(reason="why", original=re.compile(r"max\(1, total\)"))
+    record = {**_rec("src/a.py", 5, "survived", "high"), "original": "max(1,\n        total)"}
+    (mutant,) = _mutants(record)
+
+    assert accepting_rule(mutant, (rule,), _no_file) is rule
+
+
+def test_an_accept_rule_reads_the_function_of_the_edited_line() -> None:
+    # A default-argument mutant is covered through its first body line but edited on the def line: the rule
+    # names the function by the edit.
+    rule = Accept(reason="why", function="helper")
+    (mutant,) = _mutants(_rec("src/a.py", 11, "survived", "high", site_lineno=9))
+
+    assert accepting_rule(mutant, (rule,), _nested) is rule
+
+
+def test_a_function_rule_accepts_nothing_in_a_missing_source() -> None:
+    rule = Accept(reason="why", function="Queue.take")
+    (mutant,) = _mutants(_rec("src/a.py", 5, "survived", "high"))
+
+    assert accepting_rule(mutant, (rule,), _no_file) is None
+
+
+def test_render_counts_accepted_mutants_apart_from_the_verdict() -> None:
+    rule = Accept(reason="why", path="src/a.py")
+    mutants = _mutants(_rec("src/a.py", 5, "survived", "high"), _rec("src/a.py", 6, "no_coverage", key="key-2"))
+
+    rendered = render(classify(mutants, {"src/a.py": (5, 6)}, accept=(rule,)), "origin/main")
+
+    assert rendered.startswith("✅ diff gate clean vs origin/main")
+    assert rendered.endswith("\n\n  ACCEPTED by the project's accept rules (not gated): 2")
+
+
+def test_render_has_no_accepted_line_when_nothing_is_accepted() -> None:
+    rendered = render(classify(_mutants(_rec("src/a.py", 5, "killed")), {"src/a.py": (5,)}), "origin/main")
+
+    assert "ACCEPTED" not in rendered
+
+
+def test_gate_applies_accept_rules_with_the_sources_on_disk(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text(_NESTED, encoding="utf-8")
+    scope = DiffScope(
+        base_ref="origin/main",
+        base_sha="base",
+        diff_base_sha="base",
+        head_sha="head",
+        changed_lines={"src/a.py": (5, 11)},
+        file_hashes={},
+    )
+    rule = Accept(reason="the loop ends either way", function="Queue.take")
+    mutants = _mutants(_rec("src/a.py", 5, "survived", "high"), _rec("src/a.py", 11, "survived", "high", key="key-2"))
+
+    result = gate.gate(mutants, scope, root=tmp_path, accept=(rule,))
+
+    assert [accepted.mutant.lineno for accepted in result.accepted] == [5]
+    assert [mutant.lineno for mutant in result.actionable] == [11]
 
 
 def test_gate_type_aliases_are_unions() -> None:

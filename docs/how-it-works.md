@@ -88,4 +88,5 @@ content) never invalidates the verdict.
 
 Only survivors in decision, arithmetic, state and return sites (the `high` bucket), uncovered sites inside function
 bodies and unresolved timeouts gate. Module- and class-level sites without coverage run at import time and are
-reported separately as cold, without gating.
+reported separately as cold, without gating. A mutant the project's `accept` rules name (an equivalent mutant, with
+the reason in the config file) is reported apart and does not gate.

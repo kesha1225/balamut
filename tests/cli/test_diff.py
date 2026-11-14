@@ -609,3 +609,41 @@ def vars_of(metadata: substrate.SubstrateMetadata) -> dict[str, object]:
         "coverage_sha256": metadata.coverage_sha256,
         "costs_sha256": metadata.costs_sha256,
     }
+
+
+def test_an_accepted_finding_leaves_the_gate_clean_and_is_reported_with_its_reason(tmp_path: Path) -> None:
+    write_file(tmp_path / "pyproject.toml", '[tool.balamut]\nconfig = "balamut_conf.py"\n')
+    write_file(
+        tmp_path / "balamut_conf.py",
+        "from balamut.config import Accept, init\n\n"
+        "init(\n"
+        "    preflight=(('check-environment',),),\n"
+        "    accept=(Accept(reason='the bound is inclusive either way', operator='compare:Lt'),),\n"
+        ")\n",
+    )
+    scenario = Scenario(tmp_path, rows=[raw_mutant("survived", key="accepted-key")])
+
+    return_code, report = run_main(scenario)
+
+    assert return_code == 0
+    assert report["status"] == diff.RunStatus.CLEAN.value
+    assert report["findings"] == []
+    assert report["accepted"] == [
+        {
+            "key": "accepted-key",
+            "path": "src/x.py",
+            "line": 9,
+            "operator": "compare:Lt->LtE",
+            "status": "survived",
+            "original": "a < b",
+            "mutated": "a <= b",
+            "reason": "the bound is inclusive either way",
+        }
+    ]
+
+
+def test_a_project_without_accept_rules_reports_no_accepted_mutants(tmp_path: Path) -> None:
+    _return_code, report = run_main(Scenario(tmp_path, rows=[raw_mutant("survived")]))
+
+    assert report["accepted"] == []
+    assert report["status"] == diff.RunStatus.FINDINGS.value

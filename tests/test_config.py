@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 import textwrap
 from dataclasses import replace
@@ -11,6 +12,7 @@ from balamut import config
 from balamut.config import (
     DEFAULT_DIFF_KINDS,
     DEFAULT_KINDS,
+    Accept,
     IsolationKind,
     IsolationSettings,
     Layout,
@@ -449,3 +451,51 @@ def test_validate_shell_isolation_with_prepare_is_allowed(tmp_path: Path) -> Non
     iso = IsolationSettings(kind=IsolationKind.SHELL, prepare=("python", "-c", "pass"))
     profile = replace(default_profile(tmp_path), isolation=iso)
     _validate_profile(profile)
+
+
+def test_accept_rules_reach_the_profile(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        """
+        from balamut.config import Accept, init
+
+        init(accept=(Accept(reason="max is commutative", operator="lang:call:arg-swap", original="max(a, b)"),))
+        """,
+    )
+
+    assert load_profile(root).accept == (
+        Accept(reason="max is commutative", operator="lang:call:arg-swap", original="max(a, b)"),
+    )
+
+
+def test_a_project_accepts_nothing_unless_it_says_so(tmp_path: Path) -> None:
+    assert default_profile(tmp_path).accept == ()
+    assert load_profile(_write_config(tmp_path, "from balamut.config import init\n\ninit()\n")).accept == ()
+
+
+@pytest.mark.parametrize("reason", ["", "   "])
+def test_validate_rejects_an_accept_rule_without_a_reason(tmp_path: Path, reason: str) -> None:
+    rules = (Accept(reason="a real reason", path="src/a.py"), Accept(reason=reason, path="src/b.py"))
+    profile = replace(default_profile(tmp_path), accept=rules)
+    with pytest.raises(ProfileError, match=r"accept\[1\]: a reason is required"):
+        _validate_profile(profile)
+
+
+def test_validate_rejects_an_accept_rule_that_names_nothing(tmp_path: Path) -> None:
+    profile = replace(default_profile(tmp_path), accept=(Accept(reason="every mutant is fine"),))
+    with pytest.raises(ProfileError, match=r"accept\[0\]: name a path, a function, an operator or an original text"):
+        _validate_profile(profile)
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        Accept(reason="why", path="src/a.py"),
+        Accept(reason="why", function="Queue.take"),
+        Accept(reason="why", operator="lang:call:arg-swap"),
+        Accept(reason="why", original="max(a, b)"),
+        Accept(reason="why", original=re.compile(r"max\(.*\)")),
+    ],
+)
+def test_validate_allows_an_accept_rule_with_a_single_selector(tmp_path: Path, rule: Accept) -> None:
+    _validate_profile(replace(default_profile(tmp_path), accept=(rule,)))

@@ -47,6 +47,7 @@ of `init`.
 | `coverage_concurrency` | `("thread",)` | coverage.py concurrency of the measurement |
 | `coverage_workers_cap` | `4` | parallel workers of a substrate build |
 | `semantic` | (the defaults) | survivor classes by the text of the mutated code (see below) |
+| `accept` | `()` | mutants the gate never fails on, each with its reason (see below) |
 
 ## Isolation
 
@@ -173,6 +174,48 @@ The kind's name is the `register` key; its value is a tuple of facts (each a fro
 or `Enumerates` protocol of `balamut.operators.facts`); the facts' data is whatever their constructors take.
 No base class, no registry beyond this dict, no config-table protocol: facts are ordinary frozen values, and
 the config file is Python. `pip install`-ed packages need nothing more than to be importable.
+
+## Accepted mutants
+
+Some mutants cannot be killed: swapping the arguments of `max`, or deleting a `break` that only saves work,
+changes no result. `accept` names them; `balamut diff` reports them apart and never fails on them.
+
+```python
+# balamut_conf.py
+import re
+
+from balamut.config import Accept, init
+
+init(
+    accept=(
+        Accept(
+            reason="max and min are commutative over numbers",
+            operator="lang:call:arg-swap",
+            original=re.compile(r"(max|min)\(.*\)"),
+        ),
+        Accept(
+            reason="a chosen test gains nothing later: the delete only shortens the scan",
+            path="src/pkg/suite.py",
+            function="greedy_min_suite",
+            operator="lang:statement:delete",
+            original="del pool[best]",
+        ),
+    ),
+)
+```
+
+| field | meaning |
+|---|---|
+| `reason` | why no test is owed; required |
+| `path` | the file, relative to the project root |
+| `function` | the qualified name of the enclosing function (`Class.method`, `outer.inner`) |
+| `operator` | an operator name or a prefix of one |
+| `original` | the mutated source text as a report prints it (runs of whitespace compare as one space), or a compiled pattern the text must match in full |
+
+A rule needs a reason and at least one other field. An empty field matches anything, and the first rule that names
+a mutant wins. A rule accepts a survivor, an uncovered site or an unresolved timeout; a killed mutant stays killed.
+The gate prints the count (`accepted: N`) and lists every accepted mutant with its rule's reason under `accepted`
+in the JSON report. `balamut mutate`, `balamut analyze` and the HTML report show the raw verdicts.
 
 ## Environment
 

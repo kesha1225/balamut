@@ -139,3 +139,17 @@ def test_the_run_announces_the_pinned_scope_and_the_expected_build_time(
     assert return_code == 0
     assert "balamut diff: scope pinned (1 files in the diff)" in stderr
     assert "balamut diff: full coverage substrate build (reason: missing_coverage), ~3 min by the last build" in stderr
+
+
+def test_the_human_output_counts_the_accepted_mutants() -> None:
+    state = diff.RunState(accepted=[{"key": "first"}, {"key": "second"}])
+
+    rendered = diff.render_human(diff.report_build(state, diff.RunStatus.CLEAN))
+
+    assert "accepted: 2 by the project's accept rules (not gated)" in rendered.splitlines()
+
+
+def test_the_human_output_has_no_accepted_line_when_nothing_is_accepted() -> None:
+    rendered = diff.render_human(diff.report_build(diff.RunState(), diff.RunStatus.CLEAN))
+
+    assert "accepted" not in rendered

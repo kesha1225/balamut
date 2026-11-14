@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import multiprocessing
 import sys
 import types
 from collections.abc import Callable
@@ -811,6 +812,30 @@ def test_runtest_protocol_scrubs_the_environment(tmp_path: Path, monkeypatch: py
     fast_plugin.pytest_runtest_protocol(item)
 
     assert fast_plugin.COVERAGE_FILE_ENV not in fast_plugin.os.environ
+
+
+def test_runtest_protocol_lets_the_test_start_child_processes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # pytest-fast starts its workers as daemons, which multiprocessing forbids to have children.
+    monkeypatch.setattr(multiprocessing.current_process(), "daemon", True)
+    config = cast("Config", SimpleNamespace(stash={}))
+    item = cast("Item", SimpleNamespace(nodeid="tests/x_test.py::test_x", config=config))
+
+    fast_plugin.pytest_runtest_protocol(item)
+
+    assert multiprocessing.current_process().daemon is False
+
+
+def test_worker_hooks_skip_a_real_stash_without_the_worker_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    # pytest's Stash.get raises TypeError without an explicit default, which a dict standing in for the stash
+    # cannot show: both hooks run through on a stash that holds no worker state.
+    monkeypatch.setattr(multiprocessing.current_process(), "daemon", False)
+    config = cast("Config", SimpleNamespace(stash=Stash()))
+    item = cast("Item", SimpleNamespace(nodeid="tests/x_test.py::test_x", config=config))
+
+    fast_plugin.pytest_runtest_protocol(item)
+    fast_plugin.pytest_fast_annotate_result(
+        item, {"nodeid": "tests/x_test.py::test_x", "outcome": "passed", "duration": 0.5}
+    )
 
 
 def test_fast_configure_worker_registers_the_collector(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

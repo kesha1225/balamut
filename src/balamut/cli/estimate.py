@@ -95,23 +95,26 @@ def estimate_run(
     return sum(row[0] for row in rows), rows
 
 
-def _walk_mutants(paths: list[str], layout: Layout) -> Iterator[Mutant]:
+def _walk_mutants(paths: list[str], layout: Layout) -> Iterator[tuple[Mutant, str]]:
+    """Every mutant of the source files under ``paths``, with the text of its module."""
     for raw in paths:
         candidate = layout.root / raw
         files = [candidate] if candidate.is_file() else sorted(candidate.rglob("*.py"))
         for file in files:
             rel = file.relative_to(layout.root).as_posix()
             if layout.is_source_path(rel):
-                yield from enumerate_mutants(rel, file.read_text(encoding="utf-8"))
+                source = file.read_text(encoding="utf-8")
+                for mutant in enumerate_mutants(rel, source):
+                    yield mutant, source
 
 
 def _covered(paths: list[str], layout: Layout, cov: CoverageMap) -> tuple[int, ByFile, set[str]]:
     total = 0
     by_file: ByFile = {}
     union: set[str] = set()
-    for mutant in _walk_mutants(paths, layout):
+    for mutant, source in _walk_mutants(paths, layout):
         total += 1
-        tests = covering_tests(cov, mutant)
+        tests = covering_tests(cov, mutant, source)
         if tests:
             by_file.setdefault(mutant.path, []).append(tuple(sorted(tests)))
             union |= tests

@@ -8,6 +8,10 @@ coverage.py's C tracer, the shards merged fail-closed (a missing or extra worker
 coverage it records each test's full duration (setup, call and teardown) and the hashes of every source and test
 file it measured: the **tree record**.
 
+The tracer records a line only when CPython emits a line event for it. A line without one, such as a constant
+argument CPython folds into one constant with its neighbours, is covered by the tests recorded on the line of the
+innermost instruction that spans it.
+
 The triple (coverage, costs, metadata) plus the tree record is published atomically as a new *generation* under a
 file lock. A substrate is reused while it was measured the same way (substrate schema, configuration files and
 layout, Python and the measuring packages, the isolation's schema fingerprint). The set of test files and their

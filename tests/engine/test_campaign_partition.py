@@ -914,9 +914,37 @@ def test_covering_tests_reads_every_line_of_a_multiline_edit() -> None:
     # CPython 3.14 compiles no instruction for the ``if not (`` line: its coverage is always empty.
     item = _not_removal("src/x.py")
     assert (item.lineno, item.site_end_lineno) == (2, 5)
-    coverage = CoverageMap({"src/x.py": {3: frozenset({"tests/x_test.py::a"}), 4: frozenset({"tests/x_test.py::b"})}})
+    coverage = CoverageMap(
+        {
+            "src/x.py": {
+                3: frozenset({"tests/x_test.py::a"}),
+                4: frozenset({"tests/x_test.py::b"}),
+                6: frozenset({"tests/x_test.py::after"}),  # the line after the edit
+            }
+        }
+    )
 
-    assert partition.covering_tests(coverage, item) == {"tests/x_test.py::a", "tests/x_test.py::b"}
+    assert partition.covering_tests(coverage, item, _NOT_PAREN_SOURCE) == {"tests/x_test.py::a", "tests/x_test.py::b"}
+
+
+def test_covering_tests_reads_a_folded_argument_on_the_line_of_its_call() -> None:
+    # The constant arguments before ``*args`` are folded into one constant numbered with the call's first line: their
+    # own lines are never recorded, the call's line is.
+    source = (
+        "def run(call, *args):\n"
+        "    return call(\n"
+        '        "-c",\n'
+        '        "x=y",\n'
+        '        "diff",\n'
+        "        *args,\n"
+        "    )\n"
+    )
+    item = next(
+        m for m in enumerate_mutants("src/x.py", source) if m.operator == "lang:call:arg-drop" and m.lineno == 3
+    )
+    coverage = CoverageMap({"src/x.py": {2: frozenset({"tests/x_test.py::call"})}})
+
+    assert partition.covering_tests(coverage, item, source) == {"tests/x_test.py::call"}
 
 
 def test_covering_tests_selects_a_default_argument_mutant_by_its_body_line() -> None:
@@ -925,7 +953,7 @@ def test_covering_tests_selects_a_default_argument_mutant_by_its_body_line() -> 
     assert (item.site_lineno, item.lineno) == (2, 4)
     lines = {2: frozenset({"tests/x_test.py::importer"}), 4: frozenset({"tests/x_test.py::caller"})}
 
-    assert partition.covering_tests(CoverageMap({"src/x.py": lines}), item) == {"tests/x_test.py::caller"}
+    assert partition.covering_tests(CoverageMap({"src/x.py": lines}), item, source) == {"tests/x_test.py::caller"}
 
 
 def test_partition_runs_a_multiline_edit_whose_first_line_has_no_coverage(

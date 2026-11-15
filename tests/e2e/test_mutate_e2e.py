@@ -203,3 +203,28 @@ def test_a_reload_in_one_lease_leaves_the_next_lease_the_imported_definitions(tm
     assert len(triple) == 3
     assert {str(row["status"]) for row in triple} == {"killed"}
     assert {str(row["status"]) for row in rows if row["lineno"] == 2} == {"survived"}  # the reloads did run
+
+
+def test_a_constant_argument_folded_into_its_call_is_covered_by_the_call(tmp_path: Path) -> None:
+    # CPython folds the constants before ``*args`` into one constant numbered with the call's first line: the lines
+    # of those arguments are never recorded, the line of the call is.
+    root = make_project(
+        tmp_path / "proj",
+        {
+            "src/pkg/calc.py": (
+                'def command(run, *args):\n    return run(\n        "-c",\n        "a=b",\n        "diff",\n'
+                "        *args,\n    )\n"
+            ),
+            "tests/test_calc.py": (
+                "from pkg.calc import command\n\n\n"
+                "def test_command():\n"
+                '    assert command(lambda *parts: list(parts), "x") == ["-c", "a=b", "diff", "x"]\n'
+            ),
+        },
+    )
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+    rows = _rows(_mutate(root, None))
+
+    dropped = {(row["lineno"], row["status"]) for row in rows if row["mutated"] == ""}
+    assert dropped == {(3, "killed"), (4, "killed"), (5, "killed"), (6, "killed")}

@@ -459,6 +459,27 @@ def test_codes_at_site_keeps_an_edit_spanning_a_lambda_on_the_enclosing_function
     assert [c.co_qualname for c in picked] == ["outer"]
 
 
+def test_codes_at_site_never_picks_the_annotations_of_a_nested_definition() -> None:
+    # The __annotate__ of `inner` spans the whole definition; inner's own extent holds the edit and is what runs.
+    source = "def outer():\n    def inner(x: int) -> int:\n        return x + 1\n    return inner\n"
+    code = _outer_code(source)
+
+    picked = plugin._codes_at_site(code, 3, source.splitlines()[2].index("x + 1"))
+
+    assert [c.co_qualname for c in picked] == ["outer.<locals>.inner"]
+
+
+def test_codes_at_site_leaves_an_edit_outside_an_annotated_nested_body_to_the_enclosing_function() -> None:
+    # `return None` is positioned at `None`: the start of the edit lies outside inner's own instructions, and only the
+    # __annotate__ of inner would hold it.
+    source = "def outer():\n    def inner(x: int) -> None:\n        return None\n    return inner\n"
+    code = _outer_code(source)
+
+    picked = plugin._codes_at_site(code, 3, source.splitlines()[2].index("return"))
+
+    assert [c.co_qualname for c in picked] == ["outer"]
+
+
 def test_codes_at_site_picks_the_lambda_holding_the_edit_start() -> None:
     source = "def outer(parts):\n    return list(filter(lambda p: p is not None, parts))\n"
     code = _outer_code(source)
@@ -813,8 +834,25 @@ def test_apply_defaults_restore_clears_the_cache(monkeypatch: pytest.MonkeyPatch
     outcome, restore = apply_mutation_reversible(module, spec)
     assert outcome is ApplyOutcome.APPLIED
     assert restore is not None
+    applied = len(cleared)
     restore()
-    assert cleared == [True]
+    assert len(cleared) == applied + 1
+
+
+def test_arm_touch_marker_disarm_gives_the_tool_id_back(tmp_path: Path) -> None:
+    # Real sys.monitoring: a worker arms a marker for every test it runs, so a disarm that kept its id would leave
+    # the worker without a free one after two tests.
+    def f() -> int:
+        return 0
+
+    free_before = {tool for tool in plugin._MONITORING_TOOL_IDS if sys.monitoring.get_tool(tool) is None}
+    assert free_before  # a worker's own marker holds at most one of them
+
+    disarm = plugin._arm_touch_marker((f.__code__,), str(tmp_path / "touched"))
+    assert disarm is not plugin._noop_restore
+    disarm()
+
+    assert {tool for tool in plugin._MONITORING_TOOL_IDS if sys.monitoring.get_tool(tool) is None} == free_before
 
 
 def test_arm_touch_marker_disarm_disables_local_events(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -2,11 +2,15 @@
 
 Loaded into daemons with ``-p balamut.runtime.plugin``. The daemon collects the original once (an empty mutant
 file means no mutation). For every request the driver writes a spec carrying a unique ``request_token`` before
-sending it. A persistent worker reads it at the first ``pytest_runtest_setup`` of the request, restores the
-previous ``__code__``/``__defaults__``, clears the safe Python caches and applies the new mutant; the following
-items of the same request see the same patch without another reset. ``sys.modules`` is never changed:
-re-importing a C extension is unsafe for process-global state, and partially unloading a Python graph breaks the
-identity of singletons and registries.
+sending it. A persistent worker reads it at the first ``pytest_runtest_setup`` of the request: that is the lease
+boundary, where the worker undoes the reloads of the previous lease, clears the safe Python caches and prepares the
+new mutant. ``sys.modules`` is never changed: re-importing a C extension is unsafe for process-global state, and
+partially unloading a Python graph breaks the identity of singletons and registries.
+
+A mutant is live only while a test item runs: ``pytest_runtest_setup`` applies it and ``pytest_runtest_protocol``
+reverts it once the item's teardown is over. The plugin's own code therefore never runs a mutant's code, which
+matters when balamut tests itself: a mutant of this module that stayed live across a boundary would decide how the
+next mutant is applied and observed.
 
 State lives in the worker session's ``stash``. The driver keeps the worker pool across requests, so
 session-scoped fixtures and the imported graph are paid for once per campaign.
@@ -15,6 +19,7 @@ session-scoped fixtures and the imported graph are paid for once per campaign.
 from __future__ import annotations
 
 import ast
+import importlib
 import json
 import multiprocessing
 import os
@@ -35,6 +40,7 @@ from balamut.runtime import kill_deps
 from balamut.runtime.bytecode import mutate_code
 from balamut.runtime.fault import fault_globals
 from balamut.runtime.inmemory import compile_function_code, patch_code, resolve_with_cache_clear
+from balamut.runtime.reloads import Follower, ReloadLog, reload_log
 from balamut.runtime.worker_reset import WorkerBaseline, capture_baseline, reset_to_baseline
 
 # None of these is fingerprinted by pytest-fast (only PYTEST_* keys and the project's own prefixes are): daemons
@@ -50,24 +56,33 @@ FORCE_COMPILE_ENV = "BALAMUT_FORCE_COMPILE"
 UNSUPPORTED_MARKER_SUFFIX = ".unsupported"
 TOUCHED_MARKER_SUFFIX = ".touched"
 _MONITORING_TOOL_IDS = (4, 3)  # 0/1/2/5 are reserved by CPython for debugger/coverage/profiler/optimizer
+_ANNOTATE = "__annotate__"  # the deferred annotations of a definition (PEP 649)
 
 type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
 
 
-class _AppliedMutant(NamedTuple):
-    """The mutant applied in this (possibly persistent) worker: the key is the raw spec text (unique per
-    request), ``restore`` reverts the edit."""
+type Revert = Callable[[], None]
+type Apply = Callable[[], Revert]  # puts a prepared mutant into the process for one test item
+
+
+class _Lease(NamedTuple):
+    """The mutant lease of this (possibly persistent) worker: the key is the raw spec text (unique per request),
+    ``apply`` puts the mutant into the process for one item of the lease and returns what reverts it."""
 
     key: str
-    restore: Callable[[], None]
+    apply: Apply
 
 
-_STATE = pytest.StashKey["_AppliedMutant | None"]()
+_STATE = pytest.StashKey["_Lease | None"]()
+# The revert of the mutant the current test item runs against, taken by ``pytest_runtest_protocol``.
+_ITEM = pytest.StashKey["Revert | None"]()
 # Baseline of the persistent worker: the module set gates lazily imported targets; the baseline `@lru_cache`
 # wrappers are cleared at every mutant boundary. The import graph stays whole.
 _BASELINE = pytest.StashKey[WorkerBaseline]()
 # The recorder of functions a mutant lease entered (see kill_deps): one per worker, armed before collection.
 _DEPS = pytest.StashKey[kill_deps.DepsRecorder]()
+# The reloads the tests of a lease ran (see reloads): one log per worker, installed before collection.
+_RELOADS = pytest.StashKey[ReloadLog]()
 
 
 class MutantSpec(TypedDict):
@@ -156,7 +171,9 @@ def _codes_at_site(root: CodeType, lineno: int | None, col: int | None) -> tuple
     Only the start is compared: the positions are those of the mutated code, and the edit may have moved
     everything after its start. A nested code object that the edit merely contains (a lambda argument of an edited
     call) does not hold the start, so the marker stays on the scope that runs the edit: armed on the lambda, it
-    would stay silent for a mutant whose call fails before the lambda runs."""
+    would stay silent for a mutant whose call fails before the lambda runs. The ``__annotate__`` function of an
+    annotated nested definition (PEP 649) spans the whole definition but runs only when the annotations are read:
+    it is never a candidate."""
     if lineno is None:
         return (root,)
     matches: list[tuple[int, CodeType]] = []
@@ -165,7 +182,7 @@ def _codes_at_site(root: CodeType, lineno: int | None, col: int | None) -> tuple
         if _extent_holds(code, lineno, col):
             matches.append((depth, code))
         for value in code.co_consts:
-            if isinstance(value, CodeType):
+            if isinstance(value, CodeType) and value.co_name != _ANNOTATE:
                 visit(value, depth + 1)
 
     visit(root, 0)
@@ -260,77 +277,154 @@ def _bytecode_mutant(func: FunctionType, spec: MutantSpec) -> CodeType | None:
     return mutate_code(func.__code__, lineno=lineno, col=col, end_col=end_col, edit=edit)
 
 
+type _Put = Callable[[FunctionType], Revert | None]  # edits one definition; None: the edit does not fit it
+type _Watched = Callable[[tuple[FunctionType, ...]], tuple[CodeType, ...]]  # the code the touch marker watches
+
+
 def apply_mutation(module: ModuleType, spec: MutantSpec) -> ApplyOutcome:
-    """``apply_mutation_reversible`` without the restore, for one-shot callers and unit tests."""
+    """``apply_mutation_reversible`` without the revert, for one-shot callers and unit tests."""
     return apply_mutation_reversible(module, spec)[0]
 
 
-def apply_mutation_reversible(module: ModuleType, spec: MutantSpec) -> tuple[ApplyOutcome, Callable[[], None] | None]:
-    """Apply a mutant to a live module by its mechanism and return ``(outcome, restore)``.
-
-    ``restore`` reverts the edit (needed by persistent workers); None means nothing was applied. CODE patches
-    ``__code__``; DEFAULTS replaces ``__defaults__``."""
-    func, cache_clear = resolve_with_cache_clear(module, spec["qualname"])
-    if func is None:
+def apply_mutation_reversible(module: ModuleType, spec: MutantSpec) -> tuple[ApplyOutcome, Revert | None]:
+    """Prepare a mutant and apply it once: ``(outcome, revert)``; None means nothing was applied."""
+    apply = prepare_mutation(module, spec)
+    if apply is None:
         return ApplyOutcome.UNSUPPORTED, None
-    if spec.get("mechanism") == ApplyMechanism.DEFAULTS.value:
-        return _apply_defaults(func, spec, cache_clear)
+    return ApplyOutcome.APPLIED, apply()
+
+
+def prepare_mutation(
+    module: ModuleType, spec: MutantSpec, *, follow: Callable[[Follower | None], None] | None = None
+) -> Apply | None:
+    """Resolve the mutant's target and build its edit once; the returned ``apply`` puts the edit into the process
+    and returns its revert. None means UNSUPPORTED: no definition, no edit, or an edit that does not fit.
+
+    CODE swaps ``__code__``; DEFAULTS replaces ``__defaults__``. ``apply`` arms the touch marker before it edits
+    anything, so the marker is armed by unmutated code even when the mutant edits this module. ``follow`` registers
+    the callback a reload of a module calls during the item: a reload of ``module`` binds a new definition, which
+    takes the edit at once and again at every later ``apply``."""
+    qualname = spec["qualname"]
+    func, cache_clear = resolve_with_cache_clear(module, qualname)
+    if func is None:
+        return None
+    edit = _defaults_edit(spec) if spec.get("mechanism") == ApplyMechanism.DEFAULTS.value else _code_edit(func, spec)
+    if edit is None:
+        return None
+    put, watched = edit
+    trial = put(func)
+    if trial is None:
+        return None
+    trial()
+    targets: list[tuple[FunctionType, Revert]] = [(func, cache_clear)]
+    touch_path = spec.get("touch_path")
+
+    def apply() -> Revert:
+        disarm = _arm_touch_marker(watched(tuple(target for target, _clear in targets)), touch_path)
+        reverts: list[Revert] = []
+
+        def put_on(target: FunctionType, clear: Revert) -> None:
+            # The wrapper cache is empty here: resolving the target cleared it, and so did the previous revert.
+            undo = put(target)
+            if undo is None:
+                return
+
+            def revert_target() -> None:
+                undo()
+                clear()  # a wrapper cache filled by the mutant must not answer for the original
+
+            reverts.append(revert_target)
+
+        for target, clear in targets:
+            put_on(target, clear)
+
+        def carry(reloaded: ModuleType) -> None:
+            if reloaded is not module:
+                return  # resolving the target would clear its wrapper cache for nothing
+            fresh, clear = resolve_with_cache_clear(module, qualname)
+            if fresh is None:
+                return  # the reloaded body no longer defines the target
+            targets.append((fresh, clear))
+            put_on(fresh, clear)
+
+        if follow is not None:
+            follow(carry)
+
+        def revert() -> None:
+            if follow is not None:
+                follow(None)
+            try:
+                for revert_target in reversed(reverts):
+                    revert_target()
+            finally:
+                disarm()
+
+        return revert
+
+    return apply
+
+
+def _code_edit(func: FunctionType, spec: MutantSpec) -> tuple[_Put, _Watched] | None:
+    """The mutated body for ``__code__``; the touch marker watches the code object that holds the edit."""
     # Domain mutants reference helper names (nullcontext, fuzz/fault helpers, the oracle sentinel): inject them
     # with setdefault so an imported name of the module is never clobbered.
     for name, value in {**fuzz_globals(), **fault_globals(), **oracle_globals()}.items():
         func.__globals__.setdefault(name, value)
-    new_code = _bytecode_mutant(func, spec)
-    if new_code is None:
-        new_code = compile_function_code(spec["mutated_source"], spec["qualname"], spec["module"])
-    if new_code is None:
-        return ApplyOutcome.UNSUPPORTED, None
-    if func.__code__.co_qualname != new_code.co_qualname:
-        # The resolved object is something else (a decorator's wrapper without __wrapped__) than the definition
-        # compiled under the spec's qualname: grafting that body would destroy the wrapper.
-        return ApplyOutcome.UNSUPPORTED, None
-    try:
-        code_restore = patch_code(func, new_code)
-    except ValueError:  # freevars/cellvars mismatch: the body changed its closure
-        return ApplyOutcome.UNSUPPORTED, None
-    touch_restore = _arm_touch_marker(
-        _codes_at_site(new_code, spec.get("target_lineno"), spec.get("target_col")),
-        spec.get("touch_path"),
-    )
+    compiled = _bytecode_mutant(func, spec)
+    if compiled is None:
+        compiled = compile_function_code(spec["mutated_source"], spec["qualname"], spec["module"])
+    if compiled is None:
+        return None
+    new_code: CodeType = compiled
+    codes = _codes_at_site(new_code, spec.get("target_lineno"), spec.get("target_col"))
 
-    def restore() -> None:
-        touch_restore()
-        code_restore()
-        cache_clear()  # a wrapper cache filled by this mutant must not leak into the next one
+    def put(target: FunctionType) -> Revert | None:
+        if target.__code__.co_qualname != new_code.co_qualname:
+            # The resolved object is something else (a decorator's wrapper without __wrapped__) than the definition
+            # compiled under the spec's qualname: grafting that body would destroy the wrapper.
+            return None
+        try:
+            return patch_code(target, new_code)
+        except ValueError:  # freevars/cellvars mismatch: the body changed its closure
+            return None
 
-    return ApplyOutcome.APPLIED, restore
+    def watched(_targets: tuple[FunctionType, ...]) -> tuple[CodeType, ...]:
+        return codes
+
+    return put, watched
 
 
-def _apply_defaults(
-    func: FunctionType, spec: MutantSpec, cache_clear: Callable[[], None]
-) -> tuple[ApplyOutcome, Callable[[], None] | None]:
-    """Replace one positional default in the live ``__defaults__``. Sibling defaults are taken from the already
-    evaluated tuple (never re-evaluated), so nothing runs as a side effect."""
+def _defaults_edit(spec: MutantSpec) -> tuple[_Put, _Watched] | None:
+    """One positional default replaced; the touch marker watches the function's own code.
+
+    Sibling defaults are taken from the already evaluated tuple (never re-evaluated), so nothing runs as a side
+    effect."""
     index = spec.get("default_index")
     literal = spec.get("default_literal")
     if index is None or literal is None:
-        return ApplyOutcome.UNSUPPORTED, None
-    current = list(func.__defaults__ or ())
-    if not 0 <= index < len(current):
-        return ApplyOutcome.UNSUPPORTED, None
+        return None
     try:
-        current[index] = ast.literal_eval(literal)
+        value = ast.literal_eval(literal)
     except ValueError, SyntaxError:
-        return ApplyOutcome.UNSUPPORTED, None
-    original = func.__defaults__
-    touch_restore = _arm_touch_marker((func.__code__,), spec.get("touch_path"))
+        return None
 
-    def restore() -> None:
-        touch_restore()
-        func.__defaults__ = original
-        cache_clear()
+    def put(target: FunctionType) -> Revert | None:
+        original = target.__defaults__
+        current = list(original or ())
+        if not 0 <= index < len(current):
+            return None
+        current[index] = value
+        target.__defaults__ = tuple(current)
 
-    func.__defaults__ = tuple(current)
-    return ApplyOutcome.APPLIED, restore
+        def undo() -> None:
+            target.__defaults__ = original
+
+        return undo
+
+    def watched(targets: tuple[FunctionType, ...]) -> tuple[CodeType, ...]:
+        return tuple(target.__code__ for target in targets)
+
+    return put, watched
 
 
 def _mark_unsupported(spec_path: str) -> None:
@@ -339,7 +433,12 @@ def _mark_unsupported(spec_path: str) -> None:
 
 
 def _noop_restore() -> None:
-    """Nothing to restore for a mutant that was not applied; registering it still marks the lease boundary."""
+    """Nothing to revert: an item of a lease without a mutant, or a touch marker that was not armed."""
+
+
+def _noop_apply() -> Revert:
+    """The apply of a lease without a mutant: calibration, a paired original, or a mutant that is unsupported."""
+    return _noop_restore
 
 
 _OWNED_TRANSPORT_ENV = (
@@ -377,14 +476,22 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_protocol(item: pytest.Item) -> Generator[None, bool | None, bool | None]:
-    """After all phases of a test, publish the lease dependencies gathered so far.
+    """After all phases of a test, revert the mutant it ran against and publish the lease dependencies.
 
-    Not a teardown hook: a failing teardown implementation stops the others, and a killer that broke a fixture
-    cleanup would be left without its record. ``finally`` also covers what propagates through the protocol."""
+    The revert is written out here rather than called through a helper: this frame started before the mutant was
+    applied, so it runs the original code even when the mutant edits this module, while a module-level helper could
+    be the mutated one. Not a teardown hook: a failing teardown implementation stops the others, and a killer that
+    broke a fixture cleanup would be left without its record. ``finally`` also covers what propagates through the
+    protocol."""
     try:
         return (yield)
     finally:
-        recorder = _deps_recorder(item.session)
+        session = item.session
+        revert = session.stash.get(_ITEM, None)
+        if revert is not None:
+            session.stash[_ITEM] = None
+            revert()
+        recorder = _deps_recorder(session)
         if recorder is not None:
             recorder.flush()
 
@@ -409,6 +516,25 @@ def pytest_load_initial_conftests(early_config: pytest.Config) -> None:
     recorder = kill_deps.DepsRecorder(Path.cwd(), test_roots=roots)
     if kill_deps.monitoring_arm(recorder) is not None:  # no free tool id: kills fall back to the file rule
         early_config.stash[_DEPS] = recorder
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Route ``importlib.reload`` of a campaign daemon through its reload log (see reloads).
+
+    Installed before collection, so a test module that imports ``reload`` by name binds the hook too. Workers inherit
+    the hook and the log through the fork; the cleanup puts the replaced function back."""
+    if not os.environ.get(MUTANT_FILE_ENV) or _RELOADS in config.stash:
+        return
+    replaced = importlib.reload
+    log = reload_log(replaced)
+    importlib.reload = log.reload
+    config.stash[_RELOADS] = log
+
+    def uninstall() -> None:
+        if importlib.reload is log.reload:
+            importlib.reload = replaced
+
+    config.add_cleanup(uninstall)
 
 
 def _deps_recorder(session: pytest.Session) -> kill_deps.DepsRecorder | None:
@@ -455,70 +581,79 @@ def _target_module(item: pytest.Item, spec: MutantSpec, baseline: WorkerBaseline
 
 
 def _apply_or_switch(item: pytest.Item) -> None:
-    """Apply the mutant lease from the mutant file and isolate it from the previous lease.
+    """Apply the mutant of the current lease for this item; at a lease boundary, isolate it from the previous lease.
 
     The driver puts a unique ``request_token`` into the raw spec. The same raw text means the next item of the same
-    lease: the mutation and the process state stay active. Different text is a boundary: the previous mutation is
-    restored, the safe Python state goes back to the baseline, then the new mutant is applied."""
+    lease: the mutant is applied again over the process state the lease's earlier items left. Different text is a
+    boundary: the reloads of the previous lease are undone, the safe Python state goes back to the baseline, then
+    the new mutant is prepared. The mutant of the previous item is already reverted by ``pytest_runtest_protocol``."""
     spec_path = os.environ.get(MUTANT_FILE_ENV)
     if not spec_path:
         return
     session = item.session
+    reloads = session.config.stash.get(_RELOADS, None)
     baseline = session.stash.get(_BASELINE, None)
     if baseline is None:
-        # The first mutant of this worker: snapshot the process (after collection) as the reference.
+        # The first mutant of this worker: snapshot the process (after collection) as the reference. A reload run at
+        # collection is part of that reference.
         baseline = capture_baseline()
         session.stash[_BASELINE] = baseline
-    prev = session.stash.get(_STATE, None)
-
-    def _reset_to_original() -> None:
-        # Restore before any early exit, so the tests of this request run against the original.
-        if prev is not None:
-            prev.restore()
-        reset_to_baseline(baseline)
-        session.stash[_STATE] = None
-
+        if reloads is not None:
+            reloads.forget()
+    lease = session.stash.get(_STATE, None)
     path = Path(spec_path)
-    if not path.exists():
-        _reset_to_original()
+    raw: str | None = None
+    if path.exists():
+        try:
+            raw = path.read_text(encoding="utf-8").strip()
+        except OSError, UnicodeDecodeError:  # a directory, binary or unreadable spec: never crash the worker
+            _mark_unsupported(spec_path)
+    if raw is None:
+        # No lease: the tests of this request run against the original.
+        _reset(baseline, reloads)
+        session.stash[_STATE] = None
         _deps_lease(session, None)
         return
-    try:
-        raw = path.read_text(encoding="utf-8").strip()
-    except OSError, UnicodeDecodeError:  # a directory, binary or unreadable spec: never crash the worker
-        _mark_unsupported(spec_path)
-        _reset_to_original()
-        _deps_lease(session, None)
+    if lease is not None and lease.key == raw:
+        session.stash[_ITEM] = lease.apply()  # the next item of the same lease: no reset, it would clear every cache
         return
-    if prev is not None and prev.key == raw:
-        return  # the next item of the same lease: resetting again would clear every cache for nothing
-    if prev is not None:
-        prev.restore()
-        reset_to_baseline(baseline)
+    if lease is not None:
+        _reset(baseline, reloads)
+    lease = _start_lease(item, raw=raw, spec_path=spec_path, baseline=baseline, reloads=reloads)
+    session.stash[_STATE] = lease
+    session.stash[_ITEM] = lease.apply()
+
+
+def _reset(baseline: WorkerBaseline, reloads: ReloadLog | None) -> None:
+    """A lease boundary: the reloads of the previous lease are undone and the baseline caches cleared."""
+    if reloads is not None:
+        reloads.undo()
+    reset_to_baseline(baseline)
+
+
+def _start_lease(
+    item: pytest.Item, *, raw: str, spec_path: str, baseline: WorkerBaseline, reloads: ReloadLog | None
+) -> _Lease:
+    """The lease of a new raw spec; an unsupported mutant is marked for the driver and runs as the original.
+
+    Keyword-only: the raw text and the spec path are both strings, and a swap would write the marker under a name
+    made of the spec text into the working directory."""
     spec = parse_mutant_spec(raw) if raw else None
     original_deps = original_lease_deps(raw) if raw and spec is None else None
-    # The lease starts before the mutation is applied: the first entry into the mutated code is a dependency too.
-    _deps_lease(session, spec.get("deps_path") if spec is not None else original_deps)
+    # The lease starts before the mutation is prepared: the first entry into the mutated code is a dependency too.
+    _deps_lease(item.session, spec.get("deps_path") if spec is not None else original_deps)
     if not raw or original_deps is not None:
-        # Cost calibration and a paired original carry no mutation; the no-op state still marks their boundary, so
-        # the next mutant lease resets the state those tests polluted before applying.
-        session.stash[_STATE] = _AppliedMutant(raw, _noop_restore)
-        return
-    if spec is None:
+        # Cost calibration and a paired original carry no mutation; the lease still marks their boundary, so the next
+        # mutant lease resets the state those tests polluted before applying.
+        return _Lease(raw, _noop_apply)
+    module = _target_module(item, spec, baseline) if spec is not None else None
+    apply = None
+    if spec is not None and module is not None:
+        apply = prepare_mutation(module, spec, follow=reloads.follow if reloads is not None else None)
+    if apply is None:
         _mark_unsupported(spec_path)
-        session.stash[_STATE] = _AppliedMutant(raw, _noop_restore)
-        return
-    module = _target_module(item, spec, baseline)
-    if module is None:
-        _mark_unsupported(spec_path)
-        session.stash[_STATE] = _AppliedMutant(raw, _noop_restore)
-        return
-    outcome, restore = apply_mutation_reversible(module, spec)
-    if outcome is ApplyOutcome.UNSUPPORTED or restore is None:
-        _mark_unsupported(spec_path)
-        session.stash[_STATE] = _AppliedMutant(raw, _noop_restore)
-        return
-    session.stash[_STATE] = _AppliedMutant(raw, restore)
+        return _Lease(raw, _noop_apply)
+    return _Lease(raw, apply)
 
 
 __all__ = [
@@ -533,4 +668,5 @@ __all__ = [
     "apply_mutation",
     "apply_mutation_reversible",
     "parse_mutant_spec",
+    "prepare_mutation",
 ]

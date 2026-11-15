@@ -763,14 +763,33 @@ init(
         ),
         Accept(
             reason=(
-                "each dropped argument sits on a line of its own that carries no line event, so the coverage map"
-                " reports it uncovered although test_git_diff_output_pins_the_diff_config runs the call and asserts"
-                " the exact git argument sequence"
+                "only a line without a line event reaches the holders, and the first line of a code object's extent"
+                " starts one of its instructions, so it has an event: the line never equals code.first there"
             ),
-            path="src/balamut/diff/scope.py",
-            function="_git_diff_output",
-            operator="lang:call:arg-drop",
-            original=re.compile(r'"(-c|diff|diff\.mnemonicPrefix=false|diff\.noprefix=false|core\.quotepath=false)",'),
+            path="src/balamut/coverage/lines.py",
+            function="LineEvents.recorded_as",
+            operator="lang:compare:LtE->Lt",
+            original="code.first <= line <= code.last",
+        ),
+        Accept(
+            reason=(
+                "only a line without a line event is matched against the extents, and an extent's first line is the"
+                " line number of its instruction, so it has an event: the line never equals first there"
+            ),
+            path="src/balamut/coverage/lines.py",
+            function="LineEvents.recorded_as",
+            operator="lang:compare:LtE->Lt",
+            original="first <= line <= last",
+        ),
+        Accept(
+            reason=(
+                "co_positions() reports a line and an end line together or neither (the compiler rejects a node with"
+                " only one of them), so `or` and `and` keep the same extents"
+            ),
+            path="src/balamut/coverage/lines.py",
+            function="line_events",
+            operator="lang:boolop:And->Or",
+            original="first is not None and last is not None",
         ),
         Accept(
             reason=(

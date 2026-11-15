@@ -18,6 +18,7 @@ from balamut.core.mutants import Mutant
 from balamut.core.semantic import SemanticPatterns, semantic_classes
 from balamut.core.triage import Bucket, classify
 from balamut.coverage.discovery import ReexportIndex
+from balamut.coverage.lines import line_events
 from balamut.coverage.store import CachedVerdict, CostMap, Store
 from balamut.engine.identify import (
     IdentityBaseCache,
@@ -47,17 +48,22 @@ class CoverageLike(Protocol):
     def files_covered_by(self, test_ids: set[str], /) -> AbstractSet[str]: ...
 
 
-def covering_tests(cov: CoverageLike, mutant: Mutant) -> set[str]:
-    """The tests covering any line of the edit, ``lineno`` through ``site_end_lineno``.
+def covering_tests(cov: CoverageLike, mutant: Mutant, source: str) -> set[str]:
+    """The tests covering any line of the edit, ``lineno`` through ``site_end_lineno``, in the module ``source``.
 
-    The first line of a multi-line edit can carry no bytecode: CPython 3.14 attributes ``if not (`` to the lines of
-    the condition inside the parentheses, so that line never appears in coverage. A default-argument mutant
+    Each line is looked up as coverage records it (see ``coverage.lines``): a line without a line event of its own,
+    such as a constant argument folded into its call, stands for the line of the instruction that spans it. The first
+    line of a multi-line edit can carry no bytecode at all: CPython 3.14 attributes ``if not (`` to the lines of the
+    condition inside the parentheses, so that line never appears in coverage. A default-argument mutant
     (``site_lineno`` differs from ``lineno``) is selected by its ``lineno`` alone: its edit sits on the ``def`` line,
     which runs at import time, and the first body line is what every call reaches."""
-    if mutant.site_lineno != mutant.lineno:
-        return set(cov.tests_covering(mutant.path, mutant.lineno))
+    last = mutant.lineno if mutant.site_lineno != mutant.lineno else mutant.site_end_lineno
+    events = line_events(source)
+    recorded: set[int] = set()
+    for line in range(mutant.lineno, last + 1):
+        recorded |= events.recorded_as(line) if events is not None else {line}
     covering: set[str] = set()
-    for line in range(mutant.lineno, mutant.site_end_lineno + 1):
+    for line in sorted(recorded):
         covering |= cov.tests_covering(mutant.path, line)
     return covering
 
@@ -156,7 +162,7 @@ def partition(
                 oracle_nodeid(collect_file, identity["qualname"]), collected_test_nodeids
             )
         else:
-            covering = covering_tests(cov, mutant)
+            covering = covering_tests(cov, mutant, source)
             if not covering:
                 prefilled[index] = MutantResult(mutant, MutantStatus.NO_COVERAGE, 0, no_coverage_key(mutant))
                 if store is not None:

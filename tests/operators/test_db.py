@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import importlib
 
 import pytest
 
@@ -23,6 +22,7 @@ from balamut.operators.db import (
 )
 from balamut.operators.facts import EnumContext
 from balamut.operators.kit import DropEachArgument, node_is
+from bm_support.modules import reloaded
 
 
 def _results(source: str, *, operator: str, key_keywords: frozenset[str] = DEFAULT_KEY_KEYWORDS) -> set[str]:
@@ -185,13 +185,31 @@ def test_chain_rules_mechanism_is_code() -> None:
     assert ChainRulesFact().mechanism() is ApplyMechanism.CODE
 
 
+def test_dedup_key_site_ignores_a_node_that_is_not_a_call() -> None:
+    source = "keys = (A, B)\n"
+    tree = ast.parse(source)
+    ctx = EnumContext("t.py", source.encode("utf-8"), line_byte_starts(source), frozenset())
+    name = next(node for node in ast.walk(tree) if isinstance(node, ast.Name))
+
+    assert list(DedupKeySite().find(name, ctx)) == []
+
+
+def test_dedup_key_of_one_element_has_nothing_to_drop() -> None:
+    source = "x = f(dedup_key=(A,))\n"
+    tree = ast.parse(source)
+    value = next(node for node in ast.walk(tree) if isinstance(node, ast.Tuple))
+    ctx = EnumContext("t.py", source.encode("utf-8"), line_byte_starts(source), frozenset())
+
+    assert list(DedupKeySite()._drop_tuple_elements(ctx, value)) == []
+
+
 def test_dedup_key_site_class_body_reexecutes() -> None:
     # The class-body field runs only at import; a reload inside the test body re-runs it so the
     # coverage substrate attributes the line to this test (a COLD mutant reads as unsupported).
-    importlib.reload(db_module)
-    site = db_module.DedupKeySite()
-    assert site._lower == frozenset(name.lower() for name in db_module.DEFAULT_KEY_KEYWORDS)
-    assert "_lower" not in repr(site)
+    with reloaded(db_module):
+        site = db_module.DedupKeySite()
+        assert site._lower == frozenset(name.lower() for name in db_module.DEFAULT_KEY_KEYWORDS)
+        assert "_lower" not in repr(site)
 
 
 def test_db_ast_kind_names_the_group_by_and_distinct_operators() -> None:

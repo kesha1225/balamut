@@ -75,6 +75,17 @@ def test_invalidation_rejects_malformed_or_keyless_input(tmp_path: Path, payload
         output.read_invalidation_keys(path)
 
 
+@pytest.mark.parametrize("payload", ["k1", 7, None])
+def test_invalidation_rejects_a_payload_that_is_neither_rows_nor_a_report(
+    tmp_path: Path, payload: output.JsonValue
+) -> None:
+    path = tmp_path / "scalar.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="expected a JSON array of results or a final report object"):
+        output.read_invalidation_keys(path)
+
+
 def test_invalidation_rejects_unreadable_input(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="could not read"):
         output.read_invalidation_keys(tmp_path / "missing.json")

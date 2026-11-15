@@ -7,7 +7,6 @@ closest to the current tree; refresh re-measures the divergence instead of a ful
 from __future__ import annotations
 
 import fcntl
-import importlib
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -17,6 +16,7 @@ import pytest
 from balamut.coverage import pool as substrate_pool
 from balamut.coverage import substrate
 from bm_support import make_layout, write_file
+from bm_support.modules import reloaded
 from bm_support.substrates import expected_substrate_metadata, write_valid_coverage
 
 
@@ -327,6 +327,22 @@ def test_publish_creates_a_nested_pool(tmp_path: Path) -> None:
     assert (pool / published.generation).is_dir()
 
 
+def test_publish_stamps_the_entry_as_used(tmp_path: Path) -> None:
+    # Eviction orders the entries by this stamp; without it the order is the directory listing's.
+    builder, pool = tmp_path / "builder", tmp_path / "pool"
+    _source_tree(builder)
+    coverage, published = _built(builder)
+    entry = pool / published.generation
+
+    substrate_pool.pool_publish(pool, coverage, published)
+    assert substrate_pool._last_used(entry) > 0
+
+    # A build already in the pool is stamped again.
+    (entry / substrate_pool._LAST_USED).write_text("42", encoding="utf-8")
+    substrate_pool.pool_publish(pool, coverage, published)
+    assert substrate_pool._last_used(entry) > 42
+
+
 def test_seed_creates_missing_coverage_parent(tmp_path: Path) -> None:
     builder, seeded, pool = tmp_path / "builder", tmp_path / "seeded", tmp_path / "pool"
     _source_tree(builder)
@@ -374,14 +390,34 @@ def test_eviction_ignores_an_unremovable_entry(tmp_path: Path) -> None:
     # The unremovable symlink entry was skipped: eviction still completed.
 
 
+def test_seed_skips_a_pool_build_whose_tree_record_is_gone(tmp_path: Path) -> None:
+    builder, seeded, pool = tmp_path / "builder", tmp_path / "seeded", tmp_path / "pool"
+    _source_tree(builder)
+    _source_tree(seeded)
+    coverage, published = _built(builder)
+    substrate_pool.pool_publish(pool, coverage, published)
+    substrate.tree_path(pool / published.generation / "substrate").unlink()
+
+    assert _seed(seeded, pool) is None
+    assert not (seeded / "coverage.substrate").exists()
+
+
+def test_seed_from_a_missing_pool_creates_nothing(tmp_path: Path) -> None:
+    seeded, pool = tmp_path / "seeded", tmp_path / "pool"
+    _source_tree(seeded)
+
+    assert _seed(seeded, pool) is None
+    assert not pool.exists()
+
+
 def test_pool_keep_is_pinned() -> None:
-    importlib.reload(substrate_pool)
-    assert substrate_pool.POOL_KEEP == 4
+    with reloaded(substrate_pool):
+        assert substrate_pool.POOL_KEEP == 4
 
 
 def test_pool_subdir_is_pinned() -> None:
-    importlib.reload(substrate_pool)
-    assert Path("balamut") / "substrates" == substrate_pool._POOL_SUBDIR
+    with reloaded(substrate_pool):
+        assert Path("balamut") / "substrates" == substrate_pool._POOL_SUBDIR
 
 
 def test_seed_tolerates_existing_coverage_parent(tmp_path: Path) -> None:

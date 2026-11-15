@@ -138,7 +138,8 @@ def test_main_on_an_empty_cache_says_so(
 
     assert crosskill.main([]) == 0  # the default cache lives under the project's state directory
 
-    assert "no killed mutants" in capsys.readouterr().out
+    # The hint is the whole output: no matrix follows it.
+    assert capsys.readouterr().out == "no killed mutants in the cache (run `balamut mutate [--cross-kill]` first)\n"
     assert (tmp_path / ".balamut" / "cache").is_dir()
 
 

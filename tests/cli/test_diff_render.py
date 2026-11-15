@@ -34,6 +34,13 @@ def test_render_lists_the_substrate_miss_reason() -> None:
     assert "substrate-miss: config_fingerprint" in diff.render_human(report)
 
 
+def test_render_keeps_non_ascii_counts_unescaped() -> None:
+    report = diff.report_build(diff.RunState(), diff.RunStatus.CLEAN)
+    report["counts"] = {"café": 1}
+
+    assert 'counts: {"café": 1}' in diff.render_human(report).splitlines()
+
+
 def test_render_counts_every_gating_class_despite_status_precedence() -> None:
     """UNRESOLVED wins the status word; hundreds of survivors must not hide behind it."""
     rows = [("timeout", "hang_unconfirmed"), ("survived", ""), ("survived", ""), ("no_coverage", "")]
@@ -139,3 +146,17 @@ def test_the_run_announces_the_pinned_scope_and_the_expected_build_time(
     assert return_code == 0
     assert "balamut diff: scope pinned (1 files in the diff)" in stderr
     assert "balamut diff: full coverage substrate build (reason: missing_coverage), ~3 min by the last build" in stderr
+
+
+def test_the_human_output_counts_the_accepted_mutants() -> None:
+    state = diff.RunState(accepted=[{"key": "first"}, {"key": "second"}])
+
+    rendered = diff.render_human(diff.report_build(state, diff.RunStatus.CLEAN))
+
+    assert "accepted: 2 by the project's accept rules (not gated)" in rendered.splitlines()
+
+
+def test_the_human_output_has_no_accepted_line_when_nothing_is_accepted() -> None:
+    rendered = diff.render_human(diff.report_build(diff.RunState(), diff.RunStatus.CLEAN))
+
+    assert "accepted" not in rendered

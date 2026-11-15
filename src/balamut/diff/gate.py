@@ -14,7 +14,9 @@ The scoped mutants are classified as:
   ``code_reachable``; the result is advisory and **does not gate** an ordinary diff run;
 - **review**: a REVIEW survivor (``const:num`` / unary / augassign, prone to equivalence); shown, **not gated**:
   gating them pushes an agent into vacuous change-detector tests;
-- **low** survivors (a deleted logging call): suppressed.
+- **low** survivors (a deleted logging call): suppressed;
+- **accepted**: a survivor, an uncovered site or a timeout the project's ``accept`` rules name (an equivalent
+  mutant, an optimisation whose removal changes no result); counted with its rule, **never gated**.
 
 An empty diff or no mutants is clean, exit 0.
 """
@@ -24,14 +26,17 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
 import sys
 from collections import Counter
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
+from balamut.config import Accept
+from balamut.core.astcache import parse_module
 from balamut.core.triage import cold_kind
 from balamut.diff import scope as diff_scope
 from balamut.report.agent import MutantRecord, build_report
@@ -208,6 +213,70 @@ def source_reachable(source_for: SourceFor) -> Reachable:
     return reachable
 
 
+def enclosing_function(source: str, lineno: int) -> str:
+    """The qualified name of the innermost function holding the line (``Class.method``, ``outer.inner``); empty
+    outside every function and for a source that does not parse."""
+    try:
+        tree = parse_module(source)
+    except SyntaxError:
+        return ""
+    found = ""
+    pending: list[tuple[ast.AST, str]] = [(tree, "")]
+    while pending:
+        node, prefix = pending.pop()
+        for child in ast.iter_child_nodes(node):
+            if not isinstance(child, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                pending.append((child, prefix))
+                continue
+            if not child.lineno <= lineno <= (child.end_lineno or child.lineno):
+                continue
+            name = f"{prefix}.{child.name}" if prefix else child.name
+            if not isinstance(child, ast.ClassDef):
+                found = name
+            pending.append((child, name))
+    return found
+
+
+def _collapse(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _names_text(original: str | re.Pattern[str], text: str) -> bool:
+    """Does a rule's ``original`` name the mutated text (whitespace already collapsed)?"""
+    if isinstance(original, str):
+        return _collapse(original) == text
+    return original.fullmatch(text) is not None
+
+
+@dataclass(frozen=True, slots=True)
+class Accepted:
+    """A mutant the gate leaves out, with the rule that names it."""
+
+    mutant: Mutant
+    rule: Accept
+
+
+_ACCEPTABLE = frozenset({_Status.SURVIVED, _Status.NO_COVERAGE, _Status.TIMEOUT})
+
+
+def accepting_rule(mutant: Mutant, rules: Sequence[Accept], source_for: SourceFor) -> Accept | None:
+    """The first rule that names the mutant, or None. Only an open verdict is accepted: a killed mutant needs no
+    rule. The enclosing function is read from the source only for a rule that names one."""
+    if mutant.status not in _ACCEPTABLE:
+        return None
+    for rule in rules:
+        if rule.path and rule.path != mutant.path:
+            continue
+        if rule.operator and not mutant.operator.startswith(rule.operator):
+            continue
+        if rule.original and not _names_text(rule.original, _collapse(mutant.original)):
+            continue
+        if rule.function and rule.function != enclosing_function(source_for(mutant.path) or "", mutant.site_lineno):
+            continue
+        return rule
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class GateResult:
     unresolved: list[Mutant]  # a timeout without an observed test failure: gates
@@ -217,6 +286,7 @@ class GateResult:
     cold_counts: ColdCounts  # AST categories of the cold sites; no killer is attributed to them
     review: list[Mutant]  # a REVIEW survivor: shown, does not gate
     killed: int  # killed on changed lines
+    accepted: list[Accepted] = field(default_factory=list[Accepted])  # named by an accept rule: never gates
 
     def failed(self) -> bool:
         return bool(self.unresolved or self.actionable or self.uncovered)
@@ -246,12 +316,21 @@ def classify(
     changed: diff_scope.ChangedLines,
     reachable: Reachable = _always_body,
     source_for: SourceFor = _no_source,
+    accept: Sequence[Accept] = (),
 ) -> GateResult:
     """Narrow the mutants to the changed lines and split them into the gate's classes.
 
     ``reachable(file, lineno)`` separates no coverage inside a function body from a cold site; ``source_for(file)``
-    gives the AST category of a cold site, and a missing source reads as ``unattributed``."""
-    scoped = _scoped(mutants, changed)
+    gives the AST category of a cold site, and a missing source reads as ``unattributed``. A mutant an ``accept``
+    rule names leaves every other class."""
+    accepted: list[Accepted] = []
+    scoped: list[Mutant] = []
+    for mutant in _scoped(mutants, changed):
+        rule = accepting_rule(mutant, accept, source_for)
+        if rule is None:
+            scoped.append(mutant)
+        else:
+            accepted.append(Accepted(mutant, rule))
     nocov = [m for m in scoped if m.status is _Status.NO_COVERAGE]
     uncovered: list[Mutant] = []
     cold: list[Mutant] = []
@@ -265,6 +344,7 @@ def classify(
         cold_counts=_cold_counts(cold, source_for),
         review=[m for m in scoped if m.status is _Status.SURVIVED and m.bucket is _Bucket.REVIEW],
         killed=sum(1 for m in scoped if m.status is _Status.KILLED),
+        accepted=accepted,
     )
 
 
@@ -316,13 +396,17 @@ def render(result: GateResult, base: str) -> str:
             f"their own. They do not gate an ordinary diff run: {len(result.cold)} ({categories})"
         )
         lines.extend(_formatted(result.cold))
+    if result.accepted:
+        lines.append(f"\n  ACCEPTED by the project's accept rules (not gated): {len(result.accepted)}")
     return "\n".join(lines)
 
 
-def gate(mutants: list[Mutant], scope: diff_scope.DiffScope, *, root: Path) -> GateResult:
+def gate(
+    mutants: list[Mutant], scope: diff_scope.DiffScope, *, root: Path, accept: Sequence[Accept] = ()
+) -> GateResult:
     """Classify the mutants inside the pinned scope of a run; sources are read under ``root``."""
     source_for = disk_source(root)
-    return classify(mutants, scope.changed_lines, source_reachable(source_for), source_for)
+    return classify(mutants, scope.changed_lines, source_reachable(source_for), source_for, accept)
 
 
 def gate_records(scoped: list[Mutant]) -> list[MutantRecord]:

@@ -7,7 +7,6 @@ tightly enough to kill every mutant.
 
 from __future__ import annotations
 
-import importlib
 import os
 import queue
 import signal
@@ -41,6 +40,7 @@ from bm_support.campaign import (
     workers_count,
 )
 from bm_support.daemons import fake_daemon
+from bm_support.modules import reloaded
 
 
 def _survive(item: partition.Work, results: partition.ResultsByIndex, progress: CampaignProgress) -> None:
@@ -106,22 +106,22 @@ def _diag(
 # --------------------------------------------------------------------------- module / class level (cold)
 def test_module_constants_and_schema_defaults() -> None:
     """Re-import the module inside a test so the cold (module/class-level) lines get a covering test."""
-    importlib.reload(campaign)
-    assert campaign._COST_CALIBRATION_CHUNK_MAX == 64
-    assert campaign._COST_CALIBRATION_CHUNKS_PER_DAEMON == 4
-    assert campaign.COST_CALIBRATION_FULL_SUITE_MIN == 1_000
-    assert campaign._CONCURRENCY_MAX_DAEMONS == 4
-    fields = campaign.CampaignOptions.__dataclass_fields__
-    assert fields["daemons"].default == 0
-    assert fields["workers"].default == 1
-    assert fields["schedule_fuzz"].default is False
-    assert fields["cross_kill"].default is False
-    assert fields["mutant_timeout"].default == 8.0
-    assert fields["timeout_retries"].default == 1
-    assert fields["timeout_retry_multiplier"].default == 3.0
-    assert fields["detailed"].default is False
-    # Type aliases evaluate lazily: force the value so a BitOr->BitAnd mutant raises.
-    assert campaign.DiagRow.__value__ == dict[str, str | int | float]
+    with reloaded(campaign):
+        assert campaign._COST_CALIBRATION_CHUNK_MAX == 64
+        assert campaign._COST_CALIBRATION_CHUNKS_PER_DAEMON == 4
+        assert campaign.COST_CALIBRATION_FULL_SUITE_MIN == 1_000
+        assert campaign._CONCURRENCY_MAX_DAEMONS == 4
+        fields = campaign.CampaignOptions.__dataclass_fields__
+        assert fields["daemons"].default == 0
+        assert fields["workers"].default == 1
+        assert fields["schedule_fuzz"].default is False
+        assert fields["cross_kill"].default is False
+        assert fields["mutant_timeout"].default == 8.0
+        assert fields["timeout_retries"].default == 1
+        assert fields["timeout_retry_multiplier"].default == 3.0
+        assert fields["detailed"].default is False
+        # Type aliases evaluate lazily: force the value so a BitOr->BitAnd mutant raises.
+        assert campaign.DiagRow.__value__ == dict[str, str | int | float]
 
 
 def test_no_isolation_factory_returns_noisolation() -> None:

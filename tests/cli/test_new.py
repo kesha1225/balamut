@@ -156,6 +156,21 @@ def test_live_base_returns_the_main_branch(tmp_path: Path) -> None:
     assert new._live_base(tmp_path) == "main"
 
 
+def test_live_base_is_main_while_another_branch_is_checked_out(tmp_path: Path) -> None:
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _git(tmp_path, "commit", "--allow-empty", "-qm", "init")
+    _git(tmp_path, "checkout", "-q", "-b", "feature")
+
+    assert new._live_base(tmp_path) == "main"
+
+
+def test_live_base_outside_a_repository_keeps_git_quiet(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """The probes capture git's own output: its "not a git repository" complaint never reaches the terminal."""
+    assert new._live_base(tmp_path) == "origin/main"
+
+    assert capfd.readouterr() == ("", "")
+
+
 def test_project_name_falls_back_to_the_directory_for_invalid_toml(tmp_path: Path) -> None:
     write_file(tmp_path / "pyproject.toml", "[project\n")
 

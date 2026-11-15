@@ -216,3 +216,26 @@ def test_support_dependents_munges_a_nested_test_root(tmp_path: Path) -> None:
     write_file(tmp_path / "checks/inner/a_test.py", "from checks.inner.helper import X\n")
     layout = make_layout(tmp_path, tests=("checks/inner",))
     assert support_dependents(layout, ["checks/inner/helper.py"]) == ("checks/inner/a_test.py",)
+
+
+def test_relative_import_without_a_package_or_module_names_nothing() -> None:
+    node = ast.parse("from . import x").body[0]
+    assert list(support_deps.imported_modules(node, "b.py")) == []
+
+
+def test_a_module_name_string_is_recognised_under_the_configured_test_roots(tmp_path: Path) -> None:
+    write_file(tmp_path / "spec/helper.py", "HELPER = 1\n")
+    write_file(
+        tmp_path / "spec/a_test.py",
+        "import importlib\n\ndef test_a():\n    assert importlib.import_module('spec.helper')\n",
+    )
+    layout = make_layout(tmp_path, tests=("spec",))
+
+    assert support_dependents(layout, ["spec/helper.py"]) == ("spec/a_test.py",)
+
+
+def test_no_changed_file_reaches_nothing_even_through_an_unparsable_test(tmp_path: Path) -> None:
+    write_file(tmp_path / "tests/broken_test.py", "def test_broken(:\n")
+
+    assert support_dependents(make_layout(tmp_path), []) == ()
+    assert support_dependents(make_layout(tmp_path), ["tests/helper.py"]) == ("tests/broken_test.py",)

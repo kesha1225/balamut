@@ -69,6 +69,14 @@ def test_auto_plan_budgets_total_workers_across_daemons() -> None:
     assert four_workers.capacity <= 15
 
 
+@pytest.mark.parametrize("explicit_daemons", [0, 3])
+@pytest.mark.parametrize("isolated", [False, True])
+def test_negative_pending_work_plans_no_daemons(explicit_daemons: int, isolated: bool) -> None:
+    assert planner.resolve_execution_plan(
+        explicit_daemons=explicit_daemons, workers_per_daemon=2, pending=-1, perf_cores=10, isolated=isolated
+    ) == planner.ExecutionPlan(0, 2, 0)
+
+
 def test_daemon_plan_rejects_nonpositive_workers() -> None:
     with pytest.raises(ValueError, match="workers_per_daemon"):
         planner.resolve_execution_plan(

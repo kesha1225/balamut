@@ -15,6 +15,7 @@ from balamut.cli import diff
 from balamut.coverage import substrate
 from balamut.diff.scope import ScopeChanges
 from balamut.isolation import IsolationError, NoIsolation
+from balamut.paths import substrate_path
 from bm_support import write_file
 from bm_support.diff import (
     PREFLIGHT,
@@ -117,6 +118,7 @@ def test_unreachable_isolation_target_fails_before_the_scope(tmp_path: Path) -> 
 
     assert return_code != 0
     assert (report["failure_stage"], report["error_code"]) == ("preflight", "isolation_unreachable")
+    assert report["error_detail"] == "connection refused"
     assert report["next_action"] == "fix_isolation_target_and_rerun"
     assert "scope-resolve" not in scenario.events
 
@@ -345,6 +347,45 @@ def test_mutate_options_pass_through_after_the_defaults(tmp_path: Path) -> None:
     assert argv[argv.index("--daemons") + 1] == "3"
 
 
+def test_main_without_options_runs_on_the_profile_defaults(tmp_path: Path) -> None:
+    scenario = Scenario(tmp_path, rows=[raw_mutant("killed", bucket="")], real_substrate=True)
+
+    return_code = diff.main([], runtime=scenario.runtime(), root=tmp_path)
+
+    profile = project_profile(tmp_path)
+    raw_json = profile.state_dir / "diff" / "mutation.json"
+    report: Report = json.loads(raw_json.with_suffix(".report.json").read_text(encoding="utf-8"))
+    argv = mutation_argv(scenario)
+    assert return_code == 0
+    assert section(report, "invocation")["base_ref"] == profile.base
+    assert raw_json.is_file()
+    assert argv[argv.index("--coverage") + 1] == str(substrate_path(profile))
+    assert substrate.substrate_inspect(substrate_path(profile)) is not None
+
+
+def test_an_unknown_mode_is_rejected_before_the_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    scenario = Scenario(tmp_path)
+
+    with pytest.raises(SystemExit) as raised:
+        diff.main(main_args(tmp_path, "--mode", "deep"), runtime=scenario.runtime(), root=tmp_path)
+
+    assert raised.value.code == 2
+    assert "argument --mode: invalid choice: 'deep'" in capsys.readouterr().err
+    assert scenario.events == []
+
+
+def test_the_run_works_in_a_hidden_scratch_directory_next_to_the_raw_json(tmp_path: Path) -> None:
+    scenario = Scenario(tmp_path)
+
+    run_main(scenario)
+
+    argv = mutation_argv(scenario)
+    scratch = Path(argv[argv.index("--diff-scope") + 1]).parent
+    assert scratch.parent == tmp_path
+    assert scratch.name.startswith(".balamut-diff.")
+    assert not scratch.exists()  # removed with everything the run left in it
+
+
 def test_rebuild_substrate_forces_a_new_generation(tmp_path: Path) -> None:
     scenario = Scenario(tmp_path)
     scenario.cached_metadata = published_metadata(expected(tmp_path), generation="old-generation")
@@ -361,6 +402,17 @@ def test_rebuild_substrate_forces_a_new_generation(tmp_path: Path) -> None:
         "seeded_from": None,
     }
     assert "coverage-build" in scenario.events
+
+
+def test_a_failed_forced_rebuild_reports_the_generation_it_started_from(tmp_path: Path) -> None:
+    scenario = Scenario(tmp_path, coverage_returncode=1)
+    scenario.cached_metadata = published_metadata(expected(tmp_path), generation="old-generation")
+
+    return_code, report = run_main(scenario, "--rebuild-substrate")
+
+    assert return_code != 0
+    assert report["error_code"] == "baseline_artifact_missing"
+    assert section(report, "substrate")["generation"] == "old-generation"
 
 
 def test_compatible_substrate_reuse_has_no_miss_reason(tmp_path: Path) -> None:
@@ -408,6 +460,21 @@ def test_config_fingerprint_follows_the_layout(tmp_path: Path) -> None:
     assert diff.config_fingerprint(project_profile(tmp_path)) != initial
 
 
+@pytest.mark.parametrize("field", ["source", "import_roots", "tests", "test_patterns"])
+def test_config_fingerprint_follows_each_layout_field_without_a_file_change(tmp_path: Path, field: str) -> None:
+    profile = project_profile(tmp_path)
+    moved = replace(profile, layout=replace(profile.layout, **{field: ("elsewhere",)}))
+
+    assert diff.config_fingerprint(moved) != diff.config_fingerprint(profile)
+
+
+def test_config_fingerprint_follows_the_coverage_concurrency(tmp_path: Path) -> None:
+    profile = project_profile(tmp_path)
+    moved = replace(profile, coverage=replace(profile.coverage, concurrency=("thread", "greenlet")))
+
+    assert diff.config_fingerprint(moved) != diff.config_fingerprint(profile)
+
+
 def test_schema_fingerprint_is_the_isolation_fingerprint(tmp_path: Path) -> None:
     metadata = diff.expected_metadata(project_profile(tmp_path), NoIsolation())
 
@@ -439,6 +506,26 @@ def test_report_write_is_atomic_on_a_replace_failure(tmp_path: Path, monkeypatch
 
     assert report_path.read_text(encoding="utf-8") == "last-complete-report"
     assert list(tmp_path.glob(".report.json.*.tmp")) == []
+
+
+def test_report_write_stages_a_hidden_sibling_of_the_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The staged file sits next to the report (one filesystem: the replace is atomic) under a hidden name."""
+    report_path = tmp_path / "report.json"
+    staged: list[Path] = []
+    replace_file = Path.replace
+
+    def recording_replace(source: Path, target: Path) -> Path:
+        staged.append(source)
+        return replace_file(source, target)
+
+    monkeypatch.setattr(Path, "replace", recording_replace)
+
+    diff.report_write(report_path, {"status": "CLEAN"})
+
+    [temporary] = staged
+    assert temporary.parent == tmp_path
+    assert temporary.name.startswith(".report.json.")
+    assert temporary.name.endswith(".tmp")
 
 
 def test_report_boundary_failure_retries_with_an_infrastructure_report(
@@ -609,3 +696,41 @@ def vars_of(metadata: substrate.SubstrateMetadata) -> dict[str, object]:
         "coverage_sha256": metadata.coverage_sha256,
         "costs_sha256": metadata.costs_sha256,
     }
+
+
+def test_an_accepted_finding_leaves_the_gate_clean_and_is_reported_with_its_reason(tmp_path: Path) -> None:
+    write_file(tmp_path / "pyproject.toml", '[tool.balamut]\nconfig = "balamut_conf.py"\n')
+    write_file(
+        tmp_path / "balamut_conf.py",
+        "from balamut.config import Accept, init\n\n"
+        "init(\n"
+        "    preflight=(('check-environment',),),\n"
+        "    accept=(Accept(reason='the bound is inclusive either way', operator='compare:Lt'),),\n"
+        ")\n",
+    )
+    scenario = Scenario(tmp_path, rows=[raw_mutant("survived", key="accepted-key")])
+
+    return_code, report = run_main(scenario)
+
+    assert return_code == 0
+    assert report["status"] == diff.RunStatus.CLEAN.value
+    assert report["findings"] == []
+    assert report["accepted"] == [
+        {
+            "key": "accepted-key",
+            "path": "src/x.py",
+            "line": 9,
+            "operator": "compare:Lt->LtE",
+            "status": "survived",
+            "original": "a < b",
+            "mutated": "a <= b",
+            "reason": "the bound is inclusive either way",
+        }
+    ]
+
+
+def test_a_project_without_accept_rules_reports_no_accepted_mutants(tmp_path: Path) -> None:
+    _return_code, report = run_main(Scenario(tmp_path, rows=[raw_mutant("survived")]))
+
+    assert report["accepted"] == []
+    assert report["status"] == diff.RunStatus.FINDINGS.value

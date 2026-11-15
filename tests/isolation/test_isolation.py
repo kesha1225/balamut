@@ -7,7 +7,6 @@ project command; ``none`` shares the caller's environment.
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import stat
@@ -34,6 +33,7 @@ from balamut.isolation.postgres import (
 )
 from balamut.isolation.shell import ShellIsolation
 from bm_support import make_layout, write_file
+from bm_support.modules import reloaded
 
 ENV = DatabaseEnv(
     host="APP_DB_HOST", port="APP_DB_PORT", database="APP_DB_NAME", user="APP_DB_USER", password="APP_DB_PASS"
@@ -448,11 +448,87 @@ def test_required_rejects_missing_and_empty_values() -> None:
     assert _required({"APP_DB_HOST": "127.0.0.1"}, "APP_DB_HOST") == "127.0.0.1"
 
 
+def test_project_files_keeps_only_what_git_lists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # An ignored file exists on disk although git does not list it: a walk of the directory would take it.
+    write_file(tmp_path / "migrations/0001.py", "STEP = 1\n")
+    write_file(tmp_path / "build/ignored.py", "IGNORED = 1\n")
+
+    def fake_git_output_in(repo: Path, *args: str) -> str:
+        return "migrations/0001.py\0"
+
+    monkeypatch.setattr("balamut.isolation.postgres.git_output_in", fake_git_output_in)
+    assert _project_files(tmp_path) == ["migrations/0001.py"]
+
+
+def test_sql_reports_a_psql_that_cannot_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    admin = PsqlAdmin(_ENVIRON, ENV)
+
+    def missing_psql(command: list[str], **kwargs: object) -> None:
+        raise OSError("no such file")
+
+    monkeypatch.setattr("balamut.isolation.postgres.subprocess.run", missing_psql)
+    with pytest.raises(IsolationError, match="could not run psql: no such file"):
+        admin._sql("SELECT 1")
+
+
+def test_postgres_template_requires_the_database_variable_names(tmp_path: Path) -> None:
+    settings = IsolationSettings(kind=IsolationKind.POSTGRES_TEMPLATE)
+    profile = Profile(layout=make_layout(tmp_path), isolation=settings, state_dir=tmp_path / ".balamut")
+    with pytest.raises(IsolationError, match=r"needs \[tool\.balamut\.isolation\.env\]"):
+        PostgresTemplate(profile, environ=_ENVIRON, admin=FakeAdmin())
+
+
+def test_run_migrations_reports_a_command_that_cannot_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    template = _template(tmp_path, FakeAdmin(), [])
+
+    def missing_command(command: list[str], **kwargs: object) -> None:
+        raise OSError("no such file")
+
+    monkeypatch.setattr("balamut.isolation.postgres.subprocess.run", missing_command)
+    with pytest.raises(IsolationError, match="could not run the migration command: no such file"):
+        template._run_migrations({})
+
+
+def test_build_fails_when_the_template_cannot_be_published(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    admin = FakeAdmin()
+    template = _template(tmp_path, admin, [])
+    schema = template.schema_name()
+
+    def refuse_rename(old: str, new: str) -> bool:
+        return False
+
+    monkeypatch.setattr(admin, "rename", refuse_rename)
+    with pytest.raises(IsolationError, match=f"could not publish the schema template {schema}"):
+        template._build()
+    # The session blocking the rename is ended once before the retry, and the abandoned build is dropped.
+    assert len(admin.terminated) == 1
+    assert admin.terminated[0].startswith(f"{schema}_b")
+    assert admin.databases == {}
+
+
+class _EvictingAdmin(FakeAdmin):
+    """A catalog whose template a concurrent call evicts right after it is marked as used."""
+
+    def comment(self, name: str, text: str) -> None:
+        super().comment(name, text)
+        if text.startswith("balamut-schema "):
+            self.databases.pop(name, None)
+
+
+def test_prepare_gives_up_when_the_template_vanishes_after_the_rebuild(tmp_path: Path) -> None:
+    migrations: list[dict[str, str]] = []
+    template = _template(tmp_path, _EvictingAdmin(), migrations)
+    schema = template.schema_name()
+    with pytest.raises(IsolationError, match=f"the schema template {schema} disappeared while cloning"):
+        template.prepare(1, "balamut_abc")
+    assert len(migrations) == 2  # the first build and the one rebuild
+
+
 def test_postgres_module_constants_are_loaded() -> None:
-    reloaded = importlib.reload(postgres)
-    assert reloaded._IDENTIFIER_LIMIT == 63
-    assert reloaded._TEMPLATE_TTL_SECONDS == 7 * 24 * 3600
-    assert reloaded._BUILD_TTL_SECONDS == 3600
+    with reloaded(postgres) as module:
+        assert module._IDENTIFIER_LIMIT == 63
+        assert module._TEMPLATE_TTL_SECONDS == 7 * 24 * 3600
+        assert module._BUILD_TTL_SECONDS == 3600
 
 
 def test_project_files_uses_git_listing_when_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1013,9 +1089,9 @@ def test_shell_run_passes_capture_and_text_and_no_check(monkeypatch: pytest.Monk
 
 
 def test_json_value_alias_evaluates_to_a_union() -> None:
-    reloaded = importlib.reload(shell)
-    value = reloaded._JsonValue.__value__
-    assert get_args(value)
+    with reloaded(shell) as module:
+        value = module._JsonValue.__value__
+        assert get_args(value)
 
 
 def test_isolation_for_postgres_template_returns_provider(tmp_path: Path) -> None:

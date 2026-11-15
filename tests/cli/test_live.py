@@ -752,6 +752,7 @@ def _run_live_loop(
     stats: list[CampaignStats | None],
     startup: str,
     times: list[float] | None = None,
+    options: tuple[str, ...] = (),
 ) -> tuple[_SpyStdout, list[float]]:
     spy = _SpyStdout()
     sleeps: list[float] = []
@@ -788,7 +789,7 @@ def _run_live_loop(
 
     monkeypatch.setattr(live.subprocess, "Popen", fake_popen)
     monkeypatch.chdir(tmp_path)
-    live.main(["src/x.py"])
+    live.main([*options, "src/x.py"])
     return spy, sleeps
 
 
@@ -879,6 +880,38 @@ def test_live_loop_reads_hangs_from_the_start_of_the_log(tmp_path: Path, monkeyp
     )
 
     assert "hanging now: src/a.py:1" in spy.text
+
+
+def test_live_loop_reports_a_hang_in_one_snapshot_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each snapshot reads the log from where the previous one stopped: an old stall line is not shown again."""
+    ok = _stats(complete=False, enumerated=1, executed=0, terminal=1, counts=_counts(killed=1))
+
+    spy, _sleeps = _run_live_loop(
+        tmp_path,
+        monkeypatch,
+        polls=[None, None, 0],
+        stats=[ok, ok],
+        startup="src/a.py:1 stalled for 6s\n",
+    )
+
+    assert spy.text.count("=== balamut live") == 2
+    assert spy.text.count("hanging now: src/a.py:1") == 1
+
+
+def test_live_loop_sleeps_the_interval_as_a_number(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ok = _stats(complete=False, enumerated=1, executed=0, terminal=1, counts=_counts(killed=1))
+
+    spy, sleeps = _run_live_loop(
+        tmp_path,
+        monkeypatch,
+        polls=[None, None, 0],
+        stats=[ok, ok],
+        startup="cache: /tmp/cache.sqlite\nmutants: 1\n",
+        options=("--interval", "2"),
+    )
+
+    assert "a snapshot every 2s" in spy.text
+    assert sleeps == [2, 2]  # numbers: the option's own text would compare unequal
 
 
 def test_live_without_a_cache_line_runs_without_a_dashboard(

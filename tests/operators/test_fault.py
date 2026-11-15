@@ -16,3 +16,10 @@ def test_enumerate_fault_ignores_awaited_bare_calls() -> None:
 
 def test_fault_return_swap_mechanism_is_code() -> None:
     assert FaultReturnSwap().mechanism() is ApplyMechanism.CODE
+
+
+def test_return_swap_is_limited_to_the_named_methods() -> None:
+    # The awaited result is used, but ``capture`` is not a return-swap method (nor a raise-at one).
+    src = "async def f(gw):\n    done = await gw.capture()\n    return done\n"
+
+    assert enumerate_fault("t.py", src, return_swap=frozenset({"refund"})) == []

@@ -1,6 +1,6 @@
 [project]
 name = "balamut"
-version = "0.1.2"
+dynamic = ["version"]
 description = "The Python mutator for the AI era: fast, verdict-exact mutation testing for pytest suites"
 readme = "README.md"
 license = "MIT"
@@ -48,8 +48,12 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.5"]
 build-backend = "hatchling.build"
+
+# The version is the release tag: CI tags the commit it releases, and a build reads the tag from git.
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/balamut"]

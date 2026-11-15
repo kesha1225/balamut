@@ -11,7 +11,7 @@ import tempfile
 import threading
 from collections.abc import Sequence
 from pathlib import Path
-from types import ModuleType, TracebackType
+from types import ModuleType, SimpleNamespace, TracebackType
 from typing import Self, cast, get_args
 
 import pytest
@@ -125,6 +125,26 @@ def test_verdict_batch_flushes_at_eight_and_explicit_flush_publishes_tail(tmp_pa
         assert observer.execute("SELECT count(*) FROM mutant").fetchone() == (8,)
         store.flush()
         assert observer.execute("SELECT count(*) FROM mutant").fetchone() == (9,)
+    finally:
+        observer.close()
+        store.close()
+
+
+def test_a_flush_restarts_the_verdict_flush_interval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(store_module, "time", SimpleNamespace(monotonic=lambda: clock[0], time=lambda: 0.0))
+    cache = tmp_path / "c.sqlite"
+    store = Store(cache)
+    observer = sqlite3.connect(cache)
+    try:
+        clock[0] = 100.0
+        store.flush()
+        _put_sample(store, "killed")
+        assert observer.execute("SELECT count(*) FROM mutant").fetchone() == (0,)
+
+        clock[0] = 100.0 + store_module._VERDICT_FLUSH_INTERVAL_SECONDS
+        _put_sample(store, "killed", key="k2")
+        assert observer.execute("SELECT count(*) FROM mutant").fetchone() == (2,)
     finally:
         observer.close()
         store.close()
@@ -1243,5 +1263,47 @@ def test_apply_refresh_chunks_large_sets(tmp_path: Path, monkeypatch: pytest.Mon
         assert store.tests_covering("src/f0.py", 1) == set()
         assert store.tests_covering("src/new.py", 1) == set(nodeids)
         assert sum("DELETE FROM coverage WHERE test_id IN" in sql for sql in counter.executes) == 2
+    finally:
+        store.close()
+
+
+# --- malformed rows and empty collections ---
+
+
+@pytest.mark.parametrize("stored", ['{"tests/a_test.py::test_a": 1}', "[1]"], ids=["not-a-list", "non-string-item"])
+def test_get_collection_rejects_malformed_node_ids(tmp_path: Path, stored: str) -> None:
+    cache = tmp_path / "c.sqlite"
+    store = Store(cache)
+    try:
+        with sqlite3.connect(cache) as connection:
+            connection.execute(
+                "INSERT INTO test_collection(cache_key, nodeids_json, ts) VALUES(?,?,?)", ("ck", stored, 0)
+            )
+        with pytest.raises(ValueError, match="malformed node ids"):
+            store.get_collection("ck")
+    finally:
+        store.close()
+
+
+def test_put_collection_refuses_an_empty_collection(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.sqlite")
+    try:
+        with pytest.raises(ValueError, match="an empty pytest collection must not be cached"):
+            store.put_collection("ck", [])
+        assert store.get_collection("ck") is None
+    finally:
+        store.close()
+
+
+def test_verdict_with_undecodable_killers_is_rejected(tmp_path: Path) -> None:
+    cache = tmp_path / "c.sqlite"
+    store = Store(cache)
+    try:
+        _put_sample(store, "killed")
+        store.flush()
+        with sqlite3.connect(cache) as connection:
+            connection.execute("UPDATE mutant SET killed_by = ? WHERE key = ?", ("not json", "k"))
+
+        assert store.get_verdict("k") is None
     finally:
         store.close()

@@ -8,6 +8,7 @@ import pytest
 
 from balamut import __version__, cli
 from bm_support import write_file
+from bm_support.modules import reloaded
 
 
 def test_project_root_is_the_nearest_directory_with_a_balamut_table(tmp_path: Path) -> None:
@@ -92,6 +93,13 @@ def test_usage_aligns_summaries_to_the_longest_command() -> None:
     assert f"  {shortest:<{width}}  " in usage
 
 
+def test_usage_ends_with_the_per_command_help_hint() -> None:
+    last_command = list(cli.COMMANDS)[-1]
+    summary = cli.COMMANDS[last_command].summary
+
+    assert cli._usage().endswith(f"{summary}\n\nRun `balamut COMMAND --help` for the options of a command.\n")
+
+
 def test_root_without_a_command_is_a_usage_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """``--root DIR`` with no command shows the usage (not an unknown command for ``--root``)."""
     assert cli.dispatch(["--root", str(tmp_path)]) == 2
@@ -104,32 +112,26 @@ def test_command_registry_wires_each_subcommand_main_and_summary() -> None:
     """Each ``Command`` binds the real entry point and its one-line summary: a swapped or dropped argument would
     leave a name mapping to a summary string (or fail the import outright). The reload re-executes the module-level
     ``COMMANDS`` table inside this test so the coverage substrate attributes those lines to it."""
-    import importlib
-
     from balamut.cli import analyze, confirm, crosskill, diff, estimate, live, mutate, new, substrate_cmd
 
-    importlib.reload(cli)
-
-    expected = {
-        "diff": (diff.main, "the diff mutation gate: substrate, campaign over the diff, verdict report"),
-        "doctor": (diff.doctor_main, "check the substrate, the isolation target and the preflight (read-only)"),
-        "substrate": (substrate_cmd.main, "build or reuse the coverage substrate of the current tree"),
-        "mutate": (mutate.main, "run a mutation campaign over paths or a diff"),
-        "confirm": (confirm.main, "re-run the mutants of some paths after measuring new tests"),
-        "live": (live.main, "run a campaign with a live dashboard and an honest ETA"),
-        "estimate": (estimate.main, "estimate the duration of a campaign before running it"),
-        "analyze": (analyze.main, "summarize the cached verdicts of the project"),
-        "crosskill": (crosskill.main, "the kill matrix: redundant and fragile tests"),
-        "new": (new.main, "scaffold the project config: pyproject wiring, the config file, layout and diff base"),
-    }
-    assert set(cli.COMMANDS) == set(expected)
-    for name, (main, summary) in expected.items():
-        command = cli.COMMANDS[name]
-        # ``is`` is too strict: another test reloads ``diff``, giving new function objects. Name and module pin the
-        # binding without relying on object identity.
-        assert command.main.__name__ == main.__name__
-        assert command.main.__module__ == main.__module__
-        assert command.summary == summary
+    with reloaded(cli):
+        expected = {
+            "diff": (diff.main, "the diff mutation gate: substrate, campaign over the diff, verdict report"),
+            "doctor": (diff.doctor_main, "check the substrate, the isolation target and the preflight (read-only)"),
+            "substrate": (substrate_cmd.main, "build or reuse the coverage substrate of the current tree"),
+            "mutate": (mutate.main, "run a mutation campaign over paths or a diff"),
+            "confirm": (confirm.main, "re-run the mutants of some paths after measuring new tests"),
+            "live": (live.main, "run a campaign with a live dashboard and an honest ETA"),
+            "estimate": (estimate.main, "estimate the duration of a campaign before running it"),
+            "analyze": (analyze.main, "summarize the cached verdicts of the project"),
+            "crosskill": (crosskill.main, "the kill matrix: redundant and fragile tests"),
+            "new": (new.main, "scaffold the project config: pyproject wiring, the config file, layout and diff base"),
+        }
+        assert set(cli.COMMANDS) == set(expected)
+        for name, (main, summary) in expected.items():
+            command = cli.COMMANDS[name]
+            assert command.main is main
+            assert command.summary == summary
 
 
 def test_version_flag_prints_the_version_and_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:

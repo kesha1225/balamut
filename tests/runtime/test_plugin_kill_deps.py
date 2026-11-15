@@ -237,3 +237,8 @@ def test_original_lease_deps_rejects_an_empty_path() -> None:
     # An empty original_deps_path means "no paired original": it must not be treated as a path (a wrong `or`
     # would return the empty string and arm a lease against "").
     assert plugin.original_lease_deps('{"original_deps_path": ""}') is None
+
+
+def test_original_lease_deps_reads_only_a_json_object() -> None:
+    assert plugin.original_lease_deps('["original_deps_path", "mutant.json.deps"]') is None
+    assert plugin.original_lease_deps('{"original_deps_path": "mutant.json.deps"}') == "mutant.json.deps"

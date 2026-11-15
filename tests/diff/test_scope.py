@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import subprocess
 from collections.abc import Callable
 from dataclasses import fields
@@ -14,6 +13,7 @@ import pytest
 
 from balamut.diff import scope as diff_scope
 from balamut.diff.scope import BaseMode, DiffScope, Git
+from bm_support.modules import reloaded
 from bm_support.scopes import pinned, scope
 
 _DIFF = "+++ b/src/x.py\n@@ -9,0 +10,2 @@\n+first\n+second\n"
@@ -48,6 +48,11 @@ def test_git_unquote_requires_both_quote_markers() -> None:
 
 def test_git_unquote_strips_plain_quotes() -> None:
     assert diff_scope._git_unquote('"abc"') == "abc"
+
+
+def test_git_unquote_decodes_an_empty_quoted_path() -> None:
+    # Two quote characters are the shortest quoted form: the length guard is inclusive.
+    assert diff_scope._git_unquote('""') == ""
 
 
 def test_git_unquote_decodes_every_c_escape() -> None:
@@ -686,18 +691,18 @@ def test_watch_internal_fields_are_not_init_params() -> None:
 def test_module_level_constants_and_class_defaults() -> None:
     # Module- and class-level lines execute only at import; a reload inside the test body re-runs them so the
     # coverage substrate attributes them to this test (a COLD mutant then reads as unsupported, not a gap).
-    importlib.reload(diff_scope)
-    assert diff_scope._C_ESCAPE_BYTES == {
-        "a": 0x07,
-        "b": 0x08,
-        "t": 0x09,
-        "n": 0x0A,
-        "v": 0x0B,
-        "f": 0x0C,
-        "r": 0x0D,
-        '"': 0x22,
-        "\\": 0x5C,
-    }
-    watch_fields = {field.name: field for field in fields(diff_scope.ScopeWatch)}
-    assert watch_fields["interval"].default == 2.0
-    assert all(field.init is False for field in fields(diff_scope.ScopeWatch) if field.name.startswith("_"))
+    with reloaded(diff_scope):
+        assert diff_scope._C_ESCAPE_BYTES == {
+            "a": 0x07,
+            "b": 0x08,
+            "t": 0x09,
+            "n": 0x0A,
+            "v": 0x0B,
+            "f": 0x0C,
+            "r": 0x0D,
+            '"': 0x22,
+            "\\": 0x5C,
+        }
+        watch_fields = {field.name: field for field in fields(diff_scope.ScopeWatch)}
+        assert watch_fields["interval"].default == 2.0
+        assert all(field.init is False for field in fields(diff_scope.ScopeWatch) if field.name.startswith("_"))

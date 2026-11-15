@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import sys
 import textwrap
 from dataclasses import replace
@@ -11,6 +13,7 @@ from balamut import config
 from balamut.config import (
     DEFAULT_DIFF_KINDS,
     DEFAULT_KINDS,
+    Accept,
     IsolationKind,
     IsolationSettings,
     Layout,
@@ -150,6 +153,8 @@ def test_full_profile_round_trip(tmp_path: Path) -> None:
         ('[tool.balamut]\nconfig = "nope.py"\n', "does not exist"),
         ("[tool.balamut]\nconfig = 5\n", "must name the config file"),
         ("[tool.balamut]\nunknown-key = 1\n", "only `config` belongs"),
+        ("[tool.balamut\n", "pyproject.toml: "),
+        ("[tool]\nbalamut = 5\n", "tool.balamut must be a table"),
     ],
 )
 def test_invalid_pyproject_is_rejected(tmp_path: Path, body: str, fragment: str) -> None:
@@ -168,6 +173,14 @@ def test_invalid_pyproject_is_rejected(tmp_path: Path, body: str, fragment: str)
             init(kinds=("nope",))
             """,
             "kinds: unknown kind",
+        ),
+        (
+            """
+            from balamut.config import init
+
+            init(diff_kinds=("nope",))
+            """,
+            "diff_kinds: unknown kind",
         ),
         (
             """
@@ -338,6 +351,18 @@ def test_load_spec_clears_the_pending_root(tmp_path: Path) -> None:
     assert config._PENDING_ROOT.get("root") is None
 
 
+def test_a_config_without_init_does_not_reuse_the_spec_of_an_earlier_load(tmp_path: Path) -> None:
+    _write_config(tmp_path, "from balamut.config import init\n\ninit()\n")
+    load_profile(tmp_path)
+    conf = tmp_path / "balamut_conf.py"
+    conf.write_text("x = 1\n", encoding="utf-8")
+    stat = conf.stat()
+    os.utime(conf, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+
+    with pytest.raises(ProfileError, match="must call init"):
+        load_profile(tmp_path)
+
+
 def test_config_load_preserves_preexisting_sys_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_config(tmp_path, "from balamut.config import init\n\ninit()\n")
     monkeypatch.setattr(sys, "path", [str(tmp_path), *sys.path])
@@ -449,3 +474,102 @@ def test_validate_shell_isolation_with_prepare_is_allowed(tmp_path: Path) -> Non
     iso = IsolationSettings(kind=IsolationKind.SHELL, prepare=("python", "-c", "pass"))
     profile = replace(default_profile(tmp_path), isolation=iso)
     _validate_profile(profile)
+
+
+def test_accept_rules_reach_the_profile(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        """
+        from balamut.config import Accept, init
+
+        init(accept=(Accept(reason="max is commutative", operator="lang:call:arg-swap", original="max(a, b)"),))
+        """,
+    )
+
+    assert load_profile(root).accept == (
+        Accept(reason="max is commutative", operator="lang:call:arg-swap", original="max(a, b)"),
+    )
+
+
+def test_a_project_accepts_nothing_unless_it_says_so(tmp_path: Path) -> None:
+    assert default_profile(tmp_path).accept == ()
+    assert load_profile(_write_config(tmp_path, "from balamut.config import init\n\ninit()\n")).accept == ()
+
+
+@pytest.mark.parametrize("reason", ["", "   "])
+def test_validate_rejects_an_accept_rule_without_a_reason(tmp_path: Path, reason: str) -> None:
+    rules = (Accept(reason="a real reason", path="src/a.py"), Accept(reason=reason, path="src/b.py"))
+    profile = replace(default_profile(tmp_path), accept=rules)
+    with pytest.raises(ProfileError, match=r"accept\[1\]: a reason is required"):
+        _validate_profile(profile)
+
+
+def test_validate_rejects_an_accept_rule_that_names_nothing(tmp_path: Path) -> None:
+    profile = replace(default_profile(tmp_path), accept=(Accept(reason="every mutant is fine"),))
+    with pytest.raises(ProfileError, match=r"accept\[0\]: name a path, a function, an operator or an original text"):
+        _validate_profile(profile)
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        Accept(reason="why", path="src/a.py"),
+        Accept(reason="why", function="Queue.take"),
+        Accept(reason="why", operator="lang:call:arg-swap"),
+        Accept(reason="why", original="max(a, b)"),
+        Accept(reason="why", original=re.compile(r"max\(.*\)")),
+    ],
+)
+def test_validate_allows_an_accept_rule_with_a_single_selector(tmp_path: Path, rule: Accept) -> None:
+    _validate_profile(replace(default_profile(tmp_path), accept=(rule,)))
+
+
+def test_init_outside_a_config_file_is_rejected() -> None:
+    with pytest.raises(ProfileError, match=r"init\(\.\.\.\) may only be called from the config file"):
+        config.init()
+
+
+def test_a_pyproject_without_a_balamut_table_uses_the_defaults(tmp_path: Path) -> None:
+    assert load_profile(_write(tmp_path, "[tool.other]\nkey = 1\n")) == default_profile(tmp_path)
+
+
+def test_a_config_file_that_loads_another_project_before_init_is_rejected(tmp_path: Path) -> None:
+    # The nested load ends the outer one's claim on ``init``: the misuse is a ProfileError naming the file.
+    other = tmp_path / "other"
+    other.mkdir()
+    _write_config(other, "from balamut.config import init\n\ninit()\n")
+    root = tmp_path / "project"
+    root.mkdir()
+    _write_config(
+        root,
+        f"""
+        from pathlib import Path
+
+        from balamut.config import init, load_profile
+
+        load_profile(Path({str(other)!r}))
+        init()
+        """,
+    )
+    with pytest.raises(ProfileError, match=r"balamut_conf\.py: failed to import: init\(\.\.\.\) may only be called"):
+        load_profile(root)
+
+
+def test_load_config_module_registers_the_module_under_its_name(tmp_path: Path) -> None:
+    path = tmp_path / "balamut_conf.py"
+    path.write_text("marker = 42\n", encoding="utf-8")
+    module = _load_config_module(path)
+    assert sys.modules[module.__name__] is module
+
+
+def test_validate_rejects_negative_timeout_retries(tmp_path: Path) -> None:
+    profile = replace(default_profile(tmp_path), timeout_retries=-1)
+    with pytest.raises(ProfileError, match="timeout_retries must be >= 0"):
+        _validate_profile(profile)
+
+
+def test_validate_rejects_a_workers_cap_below_one(tmp_path: Path) -> None:
+    profile = default_profile(tmp_path)
+    profile = replace(profile, coverage=replace(profile.coverage, workers_cap=0))
+    with pytest.raises(ProfileError, match=r"coverage\.workers_cap must be >= 1"):
+        _validate_profile(profile)

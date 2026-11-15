@@ -7,7 +7,6 @@ falsely becoming uncovered.
 
 from __future__ import annotations
 
-import importlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -25,6 +24,7 @@ from balamut.coverage.refresh import MeasureContext, restore_wiped_src, snapshot
 from balamut.coverage.store import Store
 from balamut.isolation import NoIsolation
 from bm_support import make_layout
+from bm_support.modules import reloaded
 
 _F = "src/app/bootstrap.py"  # a module imported before the tracer starts
 _OTHER = "src/app/other.py"  # a traceable file whose coverage a refresh updates legitimately
@@ -421,8 +421,8 @@ def test_log_tail_of_a_missing_log_is_empty(tmp_path: Path) -> None:
 
 
 def test_log_tail_lines_is_pinned() -> None:
-    importlib.reload(refresh)
-    assert refresh._LOG_TAIL_LINES == 40
+    with reloaded(refresh):
+        assert refresh._LOG_TAIL_LINES == 40
 
 
 def test_targets_note_reports_a_write_failure(tmp_path: Path) -> None:

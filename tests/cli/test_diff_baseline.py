@@ -11,6 +11,7 @@ import pytest
 
 from balamut.cli import diff, mutate
 from balamut.coverage import baseline_failure, substrate
+from balamut.coverage.measure import MeasureRequest, MeasureResult
 from balamut.diff.scope import DiffScope, ScopeChanges
 from balamut.isolation import NoIsolation
 from bm_support import write_file
@@ -203,6 +204,21 @@ def test_a_passing_confirmation_rebuilds_a_compatible_substrate(tmp_path: Path) 
     substrate_report = report["substrate"]
     assert isinstance(substrate_report, dict)
     assert substrate_report["miss_reason"] == "baseline_confirmation_passed"
+
+
+def test_a_confirmation_that_could_not_run_reports_the_detail_of_the_measurement(tmp_path: Path) -> None:
+    scenario = Scenario(tmp_path, focused_coverage_returncode=2)
+    _record(tmp_path, (_FAILED,))
+    measure = scenario.measure
+
+    def measure_with_detail(request: MeasureRequest) -> MeasureResult:
+        return replace(measure(request), detail="pytest could not start")
+
+    return_code, report = run_main(scenario, runtime=replace(scenario.runtime(), measure=measure_with_detail))
+
+    assert return_code != 0
+    assert report["error_code"] == "baseline_confirmation_infra_failure"
+    assert report["error_detail"] == "pytest could not start"
 
 
 def test_a_mismatched_cache_is_ignored_and_replaced_by_a_full_build(tmp_path: Path) -> None:
@@ -489,3 +505,17 @@ def test_an_engine_reported_scope_change_is_named_by_the_orchestrator_check(
     assert report["status"] == diff.RunStatus.SCOPE_CHANGED.value
     assert report["error_detail"] == detail
     assert report["findings"] == []
+
+
+def test_both_scope_checks_receive_the_pinned_scope_and_the_project_root(tmp_path: Path) -> None:
+    """The check after the substrate and the one naming an engine-reported change ask about the same scope."""
+    scenario = Scenario(tmp_path, mutation_returncode=mutate.EXIT_SCOPE_CHANGED)
+    seen: list[tuple[DiffScope, Path]] = []
+
+    def scope_changes(pinned: DiffScope, root: Path) -> ScopeChanges:
+        seen.append((pinned, root))
+        return _CURRENT
+
+    run_main(scenario, runtime=replace(scenario.runtime(), scope_changes=scope_changes))
+
+    assert seen == [(scope(), diff.load_profile(tmp_path).root)] * 2

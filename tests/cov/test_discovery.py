@@ -6,7 +6,6 @@ the wrapper, not of the defining file. The index maps (defining file, name) to t
 
 from __future__ import annotations
 
-import importlib
 import re
 from pathlib import Path
 
@@ -14,6 +13,7 @@ from balamut.config import Layout
 from balamut.coverage import discovery
 from balamut.coverage.discovery import reexport_index, reexport_map
 from bm_support import make_layout, write_file
+from bm_support.modules import reloaded
 
 
 def _seed_reexport_tree(root: Path) -> None:
@@ -298,11 +298,11 @@ def test_reexport_map_ignores_a_syntax_error_defining_file(tmp_path: Path) -> No
 def test_test_name_re_reexecutes_and_matches_multiline() -> None:
     # The import-time regex must be compiled with MULTILINE and its bytes pattern kept: `^` then matches a test
     # declared on any line, not only at the very start of the file.
-    importlib.reload(discovery)
-    pattern = discovery._TEST_NAME_RE
-    assert pattern.flags & re.MULTILINE
-    assert pattern.search(b"import os\ndef test_one():\n    pass\n") is not None
-    assert pattern.search(b"x = 1\nclass TestThing:\n    pass\n") is not None
+    with reloaded(discovery):
+        pattern = discovery._TEST_NAME_RE
+        assert pattern.flags & re.MULTILINE
+        assert pattern.search(b"import os\ndef test_one():\n    pass\n") is not None
+        assert pattern.search(b"x = 1\nclass TestThing:\n    pass\n") is not None
 
 
 def test_reexport_map_munges_a_nested_test_root(tmp_path: Path) -> None:

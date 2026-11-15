@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import json
 import queue
+from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
-from balamut.core.hashing import mutant_key, sha
+from balamut.core.hashing import file_hash, mutant_key, sha
 from balamut.core.mutants import Mutant
 from balamut.core.triage import Bucket
 from balamut.coverage.coverage_map import CoverageMap
 from balamut.coverage.store import Store
 from balamut.diff.scope import ScopeWatch
-from balamut.engine import campaign, partition, stats, worker
+from balamut.engine import campaign, identify, partition, stats, worker
 from balamut.engine.daemon import RunResult
 from balamut.engine.output import result_json
 from balamut.engine.progress import CampaignProgress, ProgressMode
@@ -676,6 +678,20 @@ def test_support_corpus_hash_includes_test_support_files(tmp_path: Path) -> None
     assert with_helper != without_helper
 
 
+def test_support_corpus_hash_reads_each_file_once_per_memo(tmp_path: Path) -> None:
+    helper = write_file(tmp_path / "tests/helpers.py", "def helper():\n    return 1\n")
+    write_file(tmp_path / "tests/x_test.py", "def test_x():\n    pass\n")
+    layout = make_layout(tmp_path)
+    memo: dict[str, str] = {}
+
+    first = partition.support_corpus_hash(layout, memo)
+
+    assert memo == {"tests/helpers.py": file_hash(helper)}
+    # The memo is the campaign's snapshot of the tree: an edit after the first read does not move the hash.
+    helper.write_text("def helper():\n    return 2\n", encoding="utf-8")
+    assert partition.support_corpus_hash(layout, memo) == first
+
+
 def test_no_coverage_mutants_all_reach_the_prefilled_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = "def f(a, b):\n    return (a + 1, b + 2)\n"
     write_file(tmp_path / "src/x.py", source)
@@ -1122,3 +1138,126 @@ def test_partition_forwards_schedule_fuzz_to_identify(tmp_path: Path, monkeypatc
         store.close()
     assert len(items) == 1
     assert "balamut_fuzz_yield" in items[0].spec["mutated_source"]
+
+
+@dataclass(frozen=True, slots=True)
+class _FuzzedOracleFact:
+    """A self-covered fact whose mutants also take schedule-fuzz yield points."""
+
+    self_covered: ClassVar[bool] = True
+    fuzz: ClassVar[bool] = True
+
+
+def test_partition_forwards_schedule_fuzz_to_a_self_covered_mutant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(partition, "support_corpus_hash", fixed_support_hash)
+    source = "import asyncio\n\n\nasync def test_wave():\n    await asyncio.sleep(0)\n    assert 1 < 2\n"
+    write_file(tmp_path / "tests/x_test.py", source)
+    site = next(m for m in enumerate_mutants("tests/x_test.py", source) if m.operator.startswith("lang:compare"))
+    oracle = Mutant(
+        site.path,
+        site.lineno,
+        site.start_byte,
+        site.end_byte,
+        site.original,
+        site.mutated,
+        "lang:assert:negate",
+        fact=_FuzzedOracleFact(),
+        family="oracle",
+    )
+
+    items, _prefilled, _hits = partition.partition(
+        [oracle],
+        {oracle.path: source},
+        FixedCoverage(set()),
+        layout=make_layout(tmp_path),
+        store=None,
+        read_cache=False,
+        memo={},
+        reexport={},
+        schedule_fuzz=True,
+        collected_test_nodeids=frozenset({"tests/x_test.py::test_wave"}),
+    )
+
+    assert len(items) == 1
+    assert "balamut_fuzz_yield" in items[0].spec["mutated_source"]
+
+
+def _record_function_source(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record every function whose text ``identify`` resolves from the module source."""
+    resolved: list[str] = []
+    real = identify.function_source
+
+    def recording(source: str, qualname: str, *, lineno: int | None = None) -> str | None:
+        resolved.append(qualname)
+        return real(source, qualname, lineno=lineno)
+
+    monkeypatch.setattr(identify, "function_source", recording)
+    return resolved
+
+
+class _CountingCoverage:
+    """One covering test for every site, counting the lookups of the files that test executes."""
+
+    def __init__(self) -> None:
+        self.file_lookups = 0
+
+    def tests_covering(self, _path: str, _lineno: int, /) -> set[str]:
+        return {"tests/x_test.py::test_x"}
+
+    def files_covered_by(self, _test_ids: set[str], /) -> set[str]:
+        self.file_lookups += 1
+        return set()
+
+
+def test_partition_resolves_a_function_and_a_covering_set_once_for_all_their_mutants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = "def f(a, b):\n    return (a + 1, b + 2)\n"
+    write_file(tmp_path / "src/x.py", source)
+    write_file(tmp_path / "tests/x_test.py", "def test_x():\n    pass\n")
+    items = [m for m in enumerate_mutants("src/x.py", source) if m.operator.startswith("lang:const:num:")]
+    assert len(items) >= 2
+    monkeypatch.setattr(partition, "support_corpus_hash", fixed_support_hash)
+    resolved = _record_function_source(monkeypatch)
+    coverage = _CountingCoverage()
+
+    work_items, _prefilled, _hits = partition.partition(
+        items,
+        {"src/x.py": source},
+        coverage,
+        layout=make_layout(tmp_path),
+        store=None,
+        read_cache=False,
+        memo={},
+        reexport={},
+    )
+
+    assert len(work_items) == len(items)
+    assert resolved == ["f"]
+    assert coverage.file_lookups == 1
+
+
+def test_partition_resolves_an_oracle_test_function_once_for_all_its_mutants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = "def test_wave():\n    assert 1 < 2\n    assert 3 < 4\n"
+    oracles = _oracles(tmp_path, monkeypatch, "tests/x_test.py", source, predicate="lang:compare")
+    assert len(oracles) >= 2
+    resolved = _record_function_source(monkeypatch)
+
+    items, _prefilled, _hits = partition.partition(
+        oracles,
+        {oracles[0].path: source},
+        FixedCoverage(set()),
+        layout=make_layout(tmp_path),
+        store=None,
+        read_cache=False,
+        memo={},
+        reexport={},
+        collected_test_nodeids=frozenset({"tests/x_test.py::test_wave"}),
+    )
+
+    assert len(items) == len(oracles)
+    assert resolved == ["test_wave"]

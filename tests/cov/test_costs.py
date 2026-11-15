@@ -84,6 +84,17 @@ def test_a_zero_cost_value_is_valid(tmp_path: Path) -> None:
     assert read_costs(path) == {"t.py::a": 0.0}
 
 
+def test_another_schema_version_invalidates_the_sidecar(tmp_path: Path) -> None:
+    path = _write_sidecar(tmp_path / "costs.json", {"schema_version": 2, "costs": {}})
+    assert costs_valid(path) is False
+
+
+def test_a_cost_table_that_is_not_an_object_invalidates_the_sidecar(tmp_path: Path) -> None:
+    path = _write_sidecar(tmp_path / "costs.json", {"schema_version": 1, "costs": [0.5]})
+    assert costs_valid(path) is False
+    assert read_costs(path) == {}
+
+
 # --- write_json_atomic ---
 
 

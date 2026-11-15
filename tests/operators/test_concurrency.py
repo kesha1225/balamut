@@ -15,6 +15,7 @@ from balamut.operators.concurrency import (
     enumerate_concurrency,
 )
 from balamut.operators.facts import EnumContext
+from bm_support.modules import reloaded
 
 JOBS = QueueFamily(
     model="Job",
@@ -75,12 +76,10 @@ def test_lock_context_operator_recognizes_name_bound_lock() -> None:
 
 
 def test_now_shift_site_names_the_datetime_operator() -> None:
-    import importlib
-
     from balamut.operators import concurrency as concurrency_module
 
-    importlib.reload(concurrency_module)
-    assert concurrency_module.NowShiftSite().operator == "std:datetime:now-shift-collapse"
+    with reloaded(concurrency_module):
+        assert concurrency_module.NowShiftSite().operator == "std:datetime:now-shift-collapse"
 
 
 def test_lock_context_operator_recognizes_advisory_attribute_call() -> None:

@@ -18,16 +18,18 @@ import pytest
 
 from balamut.core.mutants import Mutant
 from balamut.coverage.store import Store
-from balamut.engine import campaign, partition, timeouts
+from balamut.engine import campaign, partition, stats, timeouts
 from balamut.engine.daemon import PRELOAD_REWRITE_WARNING_FILTER, Daemon, RunResult
 from balamut.engine.progress import CampaignProgress, ProgressMode
 from balamut.engine.results import CampaignExactnessError, CampaignSetupError, MutantResult, MutantStatus
 from balamut.engine.worker import Timing
-from balamut.isolation import EnvMap, EnvOverlays, Isolation
+from balamut.isolation import EnvMap, EnvOverlays, Isolation, IsolationError
 from balamut.operators.concurrency import LockDrop
 from balamut.runtime.plugin import original_lease_deps, parse_mutant_spec
 from bm_support.campaign import (
+    SOURCE,
     FakeIsolation,
+    FixedCoverage,
     missing_costs,
     mutant,
     no_missing_costs,
@@ -350,6 +352,18 @@ def test_timeout_is_retried_serially_and_persists_only_terminal_verdict(
     assert stub.timeouts == expected_timeouts
 
 
+def test_a_timeout_resolved_by_one_retry_is_not_run_by_the_next(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    item = mutant("src/x.py", 10)
+    stub = stub_campaign_runtime(monkeypatch, tmp_path, [work(0, item)], [None, RunResult(0, {}, [])])
+
+    results = run(tmp_path, [item], opts=options(tmp_path, timeout_retries=2))
+
+    assert results[0].status is MutantStatus.SURVIVED
+    assert stub.timeouts == [8.0, 24.0]
+
+
 def test_isolated_timeouts_are_retried_across_isolated_daemons(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     mutants = [mutant("src/x.py", index + 1) for index in range(3)]
     terminal = RunResult(0, {}, [])
@@ -459,6 +473,60 @@ def test_isolated_daemons_get_their_own_slot_overlays(tmp_path: Path, monkeypatc
     assert count == 2
     assert stub.spawn_overlays == [tuple({"APP_DATABASE": f"{prefix}_w{index}"} for index in range(2))]
     assert isolation.cleaned == [(2, prefix)]
+
+
+class _NoSlots(FakeIsolation):
+    """An isolation target that cannot prepare a single slot."""
+
+    def prepare(self, count: int, prefix: str, /) -> EnvOverlays:
+        _ = (count, prefix)
+        raise IsolationError("no free slot")
+
+
+class _SlotsOnce(FakeIsolation):
+    """Slots that can be prepared once: recreating them for a fresh confirmation fails."""
+
+    def prepare(self, count: int, prefix: str, /) -> EnvOverlays:
+        if self.prepared:
+            raise IsolationError("the slots are gone")
+        return super().prepare(count, prefix)
+
+
+def test_campaign_reports_isolation_slots_it_could_not_prepare(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    item = mutant("src/x.py", 10)
+    stub = stub_campaign_runtime(monkeypatch, tmp_path, [work(0, item)], [RunResult(0, {}, [])])
+
+    with pytest.raises(CampaignSetupError, match="could not prepare isolation slots: no free slot"):
+        run(tmp_path, [item], opts=options(tmp_path, isolation=_NoSlots()))
+
+    assert stub.spawn_shapes == []
+
+
+def test_campaign_reports_slots_it_could_not_refresh_for_the_confirmation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    item = mutant("src/x.py", 10)
+    stub_campaign_runtime(
+        monkeypatch,
+        tmp_path,
+        [work(0, item)],
+        [RunResult(0, {}, []), RunResult(0, {}, [])],
+        runtime_touched=[False, True],
+    )
+    isolation = _SlotsOnce()
+
+    with pytest.raises(
+        CampaignSetupError, match="could not refresh isolation slots for confirmation: the slots are gone"
+    ):
+        run(tmp_path, [item], opts=options(tmp_path, isolation=isolation))
+
+    assert len(isolation.prepared) == 1
+    assert isolation.cleaned == isolation.prepared
+
+
+def test_calibration_pool_reports_slots_it_could_not_prepare(tmp_path: Path) -> None:
+    with pytest.raises(CampaignSetupError, match="could not prepare calibration slots: no free slot"):
+        campaign._calibration_pool(2, 2, address_base="sock", env={}, isolation=_NoSlots(), scratch=tmp_path / "run")
 
 
 def test_campaign_scopes_daemon_addresses_per_invocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -696,6 +764,36 @@ def test_run_lane_bounds_a_permanently_requeued_item(tmp_path: Path, monkeypatch
     assert attempts == 2
 
 
+def test_run_lane_needs_a_daemon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(campaign, "await_pool", no_pool_action)
+    monkeypatch.setattr(campaign, "missing_cost_nodeids", no_missing_costs)
+
+    with pytest.raises(RuntimeError, match="the mutation lane got no daemon"):
+        _lane(tmp_path, [work(0, mutant("src/x.py", 10))], [])
+
+
+def test_run_lane_reports_a_mutant_that_left_the_queue_without_a_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty queue ends the drain waves: no worker can still bring the missing verdict."""
+
+    def lose_the_mutant(
+        _daemon: Daemon, pending: queue.Queue[partition.Work], *_args: object, **_kwargs: object
+    ) -> None:
+        try:
+            pending.get_nowait()
+        except queue.Empty:
+            return
+
+    monkeypatch.setattr(campaign, "await_pool", no_pool_action)
+    monkeypatch.setattr(campaign, "missing_cost_nodeids", no_missing_costs)
+    monkeypatch.setattr(campaign, "worker_loop", lose_the_mutant)
+    pool = [fake_daemon(tmp_path, address=f"sock-{index}", index=index) for index in range(2)]
+
+    with pytest.raises(RuntimeError, match=r"1 mutant\(s\) without a verdict \(0 queued\) after 1 drain waves"):
+        _lane(tmp_path, [work(0, mutant("src/x.py", 10))], pool)
+
+
 type _RequestCall = tuple[str, list[str] | None, bool]
 
 
@@ -783,6 +881,11 @@ def test_calibrate_costs_skips_known_covering_tests(tmp_path: Path, monkeypatch:
     assert costs == {"tests/x_test.py::test_x": 0.25}
 
 
+def test_calibrate_costs_needs_a_daemon() -> None:
+    with pytest.raises(RuntimeError, match="the baseline cost calibration got no daemon"):
+        campaign.calibrate_costs([], [work(0, mutant("src/x.py", 10))], {})
+
+
 def test_red_calibration_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def red(
         _address: str, _nodeids: list[str] | None, _durations: dict[str, float], failures: list[str], **_kwargs: bool
@@ -841,3 +944,172 @@ def test_persist_pool_rejects_an_isolated_environment(tmp_path: Path, monkeypatc
 
     with pytest.raises(CampaignSetupError, match="--persist-pool needs a shared"):
         run(tmp_path, [item], opts=options(tmp_path, persist_pool=True, isolation=FakeIsolation()))
+
+
+def test_campaign_warms_the_kill_validity_parses_before_the_partition_reads_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+
+    class RecordingValidity:
+        def __init__(self, layout: object, *, support_hash: str, since: float | None = None) -> None:
+            _ = (layout, support_hash, since)
+
+        def warm_layout(self) -> None:
+            events.append("warm")
+
+    def recording_partition(
+        *_args: object, **_kwargs: object
+    ) -> tuple[list[partition.Work], partition.ResultsByIndex, int]:
+        events.append("partition")
+        return [], {}, 0
+
+    monkeypatch.setattr(campaign, "KillValidity", RecordingValidity)
+    monkeypatch.setattr(campaign, "partition", recording_partition)
+    monkeypatch.setattr(campaign, "resolve_workers", workers_count(10))
+
+    assert run(tmp_path, []) == []
+    assert events == ["warm", "partition"]
+
+
+type _PoolCall = tuple[str, int, int, str | None, Path, int | None]
+
+
+def _record_pool_calls(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[list[_PoolCall], list[_PoolCall]]:
+    """Replace the pool factories of a stubbed campaign with fakes recording every argument -> (adopted, spawned).
+
+    The environment handed to a pool is recorded by the marker variable the test put into the process environment."""
+    adopted: list[_PoolCall] = []
+    spawned: list[_PoolCall] = []
+    monkeypatch.setenv("BALAMUT_POOL_ENV_MARKER", "campaign environment")
+
+    def fake_adopt_pool(
+        address_base: str, daemons: int, workers: int, env: EnvMap, scratch: Path, *, persist_workers: bool = True
+    ) -> list[Daemon] | None:
+        _ = persist_workers
+        adopted.append((address_base, daemons, workers, env.get("BALAMUT_POOL_ENV_MARKER"), scratch, None))
+        return None
+
+    def fake_spawn_pool(
+        address_base: str,
+        daemons: int,
+        workers: int,
+        env: EnvMap,
+        overlays: EnvOverlays,
+        *,
+        scratch: Path,
+        persist_workers: bool = True,
+        idle_ttl: int | None = None,
+    ) -> list[Daemon]:
+        _ = (overlays, persist_workers)
+        spawned.append((address_base, daemons, workers, env.get("BALAMUT_POOL_ENV_MARKER"), scratch, idle_ttl))
+        return [fake_daemon(tmp_path, address=f"{address_base}.0")]
+
+    monkeypatch.setattr(campaign, "adopt_pool", fake_adopt_pool)
+    monkeypatch.setattr(campaign, "spawn_pool", fake_spawn_pool)
+    return adopted, spawned
+
+
+def _two_survivors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[Mutant]:
+    mutants = [mutant("src/x.py", index + 1) for index in range(2)]
+    stub_campaign_runtime(
+        monkeypatch,
+        tmp_path,
+        [work(index, item) for index, item in enumerate(mutants)],
+        [RunResult(0, {}, []), RunResult(0, {}, [])],
+    )
+    return mutants
+
+
+def test_campaign_spawns_its_pool_with_the_planned_shape_and_the_configured_idle_ttl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutants = _two_survivors(monkeypatch, tmp_path)
+    adopted, spawned = _record_pool_calls(monkeypatch, tmp_path)
+
+    run(tmp_path, mutants, opts=options(tmp_path, daemons=2, workers=3, daemon_ttl=90))
+
+    assert adopted == []
+    [(address_base, *shape)] = spawned
+    assert address_base.startswith(f"{tmp_path / 'mutate.sock'}.run-")
+    assert shape == [2, 3, "campaign environment", tmp_path / "run", 90]
+
+
+def test_persisted_campaign_probes_then_spawns_the_pool_with_the_planned_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutants = _two_survivors(monkeypatch, tmp_path)
+    adopted, spawned = _record_pool_calls(monkeypatch, tmp_path)
+
+    run(tmp_path, mutants, opts=options(tmp_path, daemons=2, workers=3, daemon_ttl=90, persist_pool=True))
+
+    pool_address = f"{tmp_path / 'mutate.sock'}.pool"
+    assert adopted == [(pool_address, 2, 3, "campaign environment", tmp_path / "run", None)]
+    assert spawned == [(pool_address, 2, 3, "campaign environment", tmp_path / "run", 90)]
+
+
+class _SteppingClock:
+    """The ``time`` of the campaign module: every ``perf_counter`` reading is one second after the previous one."""
+
+    def __init__(self) -> None:
+        self._readings = 0.0
+
+    def perf_counter(self) -> float:
+        self._readings += 1.0
+        return self._readings
+
+    def monotonic(self) -> float:
+        return time.monotonic()
+
+    def time(self) -> float:
+        return time.time()
+
+
+def test_campaign_adds_the_seconds_of_its_phases_to_the_seeded_timings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    item = mutant("src/x.py", 10)
+    stats_path = tmp_path / "stats.json"
+    stub_campaign_runtime(monkeypatch, tmp_path, [work(0, item)], [])
+    monkeypatch.setattr(campaign, "time", _SteppingClock())
+
+    def fake_execute(
+        work_items: list[partition.Work],
+        results: partition.ResultsByIndex,
+        progress: CampaignProgress,
+        *_args: object,
+        **_kwargs: object,
+    ) -> tuple[float, float]:
+        for queued in work_items:
+            _survive(queued, results, progress)
+        return 0.5, 1.25
+
+    monkeypatch.setattr(campaign, "_execute", fake_execute)
+    seeded = {
+        "coverage_refresh": 2.0,
+        "cache_partition": 8.0,
+        "daemon_startup": 16.0,
+        "mutant_execution": 32.0,
+        "persistence": 64.0,
+    }
+
+    campaign.run_campaign(
+        [item],
+        SOURCE,
+        FixedCoverage(),
+        options=options(tmp_path, stats_path=stats_path),
+        store=None,
+        read_cache=False,
+        phase_timings=seeded,
+    )
+
+    snapshot = stats.read_campaign_stats(stats_path)
+    assert snapshot is not None
+    assert snapshot.timings == {
+        **stats.empty_campaign_timings(),
+        "coverage_refresh": 2.0,
+        "cache_partition": 9.0,
+        "daemon_startup": 16.5,
+        "mutant_execution": 33.25,
+        "persistence": 65.0,
+    }

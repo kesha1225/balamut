@@ -145,9 +145,11 @@ def test_main_rejects_paths_without_tracked_python(
 ) -> None:
     _repo(tmp_path, {"README.md": "x\n"})
     monkeypatch.chdir(tmp_path)
+    cache = tmp_path / "c.sqlite"
 
-    assert analyze.main(["src", "--cache", str(tmp_path / "c.sqlite")]) == 2
-    assert "no tracked .py" in capsys.readouterr().err
+    assert analyze.main(["src", "--cache", str(cache)]) == 2
+    assert capsys.readouterr().err == "balamut analyze: no tracked .py under ['src']\n"
+    assert not cache.exists()  # the command stops before it opens the cache
 
 
 def test_main_rejects_files_without_cached_verdicts(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-import importlib
 import json
 import os
 import types
@@ -13,6 +12,7 @@ import pytest
 
 from balamut.coverage import baseline_failure
 from balamut.coverage.substrate import SubstrateMetadata
+from bm_support.modules import reloaded
 from bm_support.substrates import expected_substrate_metadata
 
 _NODEID = "tests/x_test.py::test_x"
@@ -170,13 +170,13 @@ def test_write_encodes_non_ascii_nodeids_literally(tmp_path: Path) -> None:
 
 
 def test_json_value_alias_is_a_union() -> None:
-    importlib.reload(baseline_failure)
-    assert isinstance(baseline_failure.JsonValue.__value__, types.UnionType)
+    with reloaded(baseline_failure):
+        assert isinstance(baseline_failure.JsonValue.__value__, types.UnionType)
 
 
 def test_schema_version_is_pinned() -> None:
-    importlib.reload(baseline_failure)
-    assert baseline_failure._BASELINE_FAILURE_SCHEMA_VERSION == 2
+    with reloaded(baseline_failure):
+        assert baseline_failure._BASELINE_FAILURE_SCHEMA_VERSION == 2
 
 
 def test_failure_write_stages_the_temp_next_to_the_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

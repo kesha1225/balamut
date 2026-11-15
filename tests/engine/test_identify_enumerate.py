@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import override
 
 import pytest
 from capability import Capability
@@ -113,6 +114,32 @@ def test_identify_carries_bytecode_fields_for_a_single_line_constant() -> None:
     assert found is not None
     assert found["spec"].get("bc_kind") == "const"
     assert found["spec"].get("bc_mutated") == "2"
+
+
+def test_identify_carries_every_bytecode_field_of_a_compare_site() -> None:
+    src = "def f(a, b):\n    return a < b\n"
+    mutant = next(m for m in enumerate_mutants("t.py", src) if m.operator == "lang:compare:Lt->LtE")
+
+    found = identify.identify(mutant, src, module="t")
+
+    assert found is not None
+    assert {name: value for name, value in found["spec"].items() if name.startswith("bc_")} == {
+        "bc_kind": "compare",
+        "bc_source": "Lt",
+        "bc_target": "LtE",
+        "bc_lineno": 2,
+        "bc_col": 11,
+        "bc_end_col": 16,
+        "bc_mutated": "",
+    }
+
+
+def test_identify_finds_no_identity_for_a_function_under_a_module_level_condition() -> None:
+    """The content key resolves a function among the direct children of a module or a class only."""
+    src = "import sys\n\nif sys.platform == 'x':\n    def f(a, b):\n        return a < b\n"
+    mutant = next(m for m in enumerate_mutants("t.py", src) if m.operator == "lang:compare:Lt->LtE")
+
+    assert identify.identify(mutant, src, module="t") is None
 
 
 def test_identify_injects_yield_points_into_concurrency_mutants_under_schedule_fuzz() -> None:
@@ -246,6 +273,15 @@ def test_paths_by_kind_routes_each_kind_to_its_own_files(tmp_path: Path) -> None
     assert {m.path for m in mutants} == {"src/x.py", "tests/x_test.py"}
 
 
+def test_a_kind_absent_from_paths_by_kind_applies_to_no_file(tmp_path: Path) -> None:
+    write_file(tmp_path / "src/x.py", "def f(a, b):\n    return a < b\n")
+
+    mutants = _enumerate(tmp_path, ["src/x.py"], ["src", "extreme"], paths_by_kind={"src": frozenset({"src/x.py"})})
+
+    assert mutants
+    assert {m.family for m in mutants} == {"src"}
+
+
 def test_concurrency_kind_uses_the_configured_queue_families(tmp_path: Path) -> None:
     write_file(
         tmp_path / "src/jobs.py",
@@ -267,7 +303,10 @@ def test_concurrency_kind_uses_the_configured_queue_families(tmp_path: Path) -> 
 def test_unknown_kind_is_rejected(tmp_path: Path) -> None:
     write_file(tmp_path / "src/x.py", "def f():\n    return 1\n")
 
-    with pytest.raises(enumeration.UnknownKindError, match="future-kind"):
+    with pytest.raises(
+        enumeration.UnknownKindError,
+        match="unknown mutant kind 'future-kind': it is not built-in and the config file does not register it",
+    ):
         _enumerate(tmp_path, ["src/x.py"], ["future-kind"])
 
 
@@ -590,3 +629,74 @@ def test_mutant_cache_ignores_a_corrupted_pickle(tmp_path: Path) -> None:
     (tmp_path / "cache" / f"{key}.pickle").write_bytes(b"not a pickle")
 
     assert cache.load("x", "y", "z") is None
+
+
+class _RecordingCache(enumeration.MutantCache):
+    """The real enumeration cache, recording the keys it is asked for and the mutants it is given to keep."""
+
+    def __init__(self, directory: Path) -> None:
+        super().__init__(directory)
+        self.loads: list[tuple[str, str, str]] = []
+        self.stores: list[tuple[str, str, str, list[Mutant]]] = []
+
+    @override
+    def load(self, rel: str, source_hash: str, kind: str) -> list[Mutant] | None:
+        self.loads.append((rel, source_hash, kind))
+        return super().load(rel, source_hash, kind)
+
+    @override
+    def store(self, rel: str, source_hash: str, kind: str, mutants: list[Mutant]) -> None:
+        self.stores.append((rel, source_hash, kind, list(mutants)))
+        super().store(rel, source_hash, kind, mutants)
+
+
+_CACHED_SOURCES = {"src/a.py": "def f(a, b):\n    return a < b\n", "src/b.py": "def g(a):\n    return a + 1\n"}
+_CACHED_KINDS = ["src", "extreme"]
+
+
+def _enumerate_cached(root: Path, cache: enumeration.MutantCache) -> list[Mutant]:
+    for rel, source in _CACHED_SOURCES.items():
+        write_file(root / rel, source)
+    mutants, _sources, _reexport = enumeration.enumerate_paths(
+        ["src"],
+        _CACHED_KINDS,
+        layout=make_layout(root),
+        resolved=enumeration.resolve_kinds(_CACHED_KINDS, KindOverrides()),
+        enum_cache=cache,
+    )
+    return mutants
+
+
+def test_enumeration_caches_each_file_and_kind_under_the_hash_of_its_source(tmp_path: Path) -> None:
+    cache = _RecordingCache(tmp_path / "cache")
+
+    mutants = _enumerate_cached(tmp_path, cache)
+
+    keys = [
+        (rel, hashlib.sha256(source.encode()).hexdigest(), kind)
+        for rel, source in _CACHED_SOURCES.items()
+        for kind in _CACHED_KINDS
+    ]
+    assert cache.loads == keys
+    assert [(rel, source_hash, kind) for rel, source_hash, kind, _kept in cache.stores] == keys
+    for rel, _source_hash, kind, kept in cache.stores:
+        assert kept
+        assert kept == [m for m in mutants if m.path == rel and m.family == kind]
+
+
+def test_cached_enumeration_returns_the_same_mutants_without_enumerating_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cold = _enumerate_cached(tmp_path, enumeration.MutantCache(tmp_path / "cache"))
+
+    def no_enumeration(*_args: object, **_kwargs: object) -> list[Mutant]:
+        pytest.fail("a cache hit must not enumerate the file again")
+
+    monkeypatch.setattr(enumeration, "enumerate_facts", no_enumeration)
+    warm_cache = _RecordingCache(tmp_path / "cache")
+
+    warm = _enumerate_cached(tmp_path, warm_cache)
+
+    assert {(m.path, m.family) for m in cold} == {(rel, kind) for rel in _CACHED_SOURCES for kind in _CACHED_KINDS}
+    assert warm == cold
+    assert warm_cache.stores == []

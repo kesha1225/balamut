@@ -5,10 +5,12 @@ A pure seam: build a module with exec, apply a spec, check the behaviour change 
 
 from __future__ import annotations
 
+import ast
 import sys
 import types
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -91,6 +93,32 @@ def test_apply_mutation_falls_back_to_compile_when_bytecode_rejects() -> None:
     f = resolve_function(module, "f")
     assert f is not None
     assert f(10, 3) == 7
+
+
+_ADD_SOURCE = "def f(a, b):\n    return a + b\n"
+# Add->Sub as a bytecode edit gives -1 for (2, 3); the mutated source of the fallback multiplies instead.
+_MULTIPLY_TRAP = "def f(a, b):\n    return a * b\n"
+
+
+@pytest.mark.parametrize("missing", ["bc_kind", "bc_lineno", "bc_col", "bc_end_col", "bc_mutated"])
+def test_apply_mutation_recompiles_when_a_bytecode_field_is_missing(missing: str) -> None:
+    module = _module("m_bc_partial", _ADD_SOURCE)
+    spec = _bc_spec("m_bc_partial", _ADD_SOURCE, "f", lambda op: op.startswith("lang:binop:Add"), trap=_MULTIPLY_TRAP)
+    fields = {key: value for key, value in spec.items() if key != missing}
+    assert apply_mutation(module, cast("MutantSpec", fields)) is ApplyOutcome.APPLIED
+    f = resolve_function(module, "f")
+    assert f is not None
+    assert f(2, 3) == 6
+
+
+def test_apply_mutation_recompiles_for_an_unknown_bytecode_kind() -> None:
+    module = _module("m_bc_unknown", _ADD_SOURCE)
+    spec = _bc_spec("m_bc_unknown", _ADD_SOURCE, "f", lambda op: op.startswith("lang:binop:Add"), trap=_MULTIPLY_TRAP)
+    spec["bc_kind"] = "unknown"
+    assert apply_mutation(module, spec) is ApplyOutcome.APPLIED
+    f = resolve_function(module, "f")
+    assert f is not None
+    assert f(2, 3) == 6
 
 
 def test_apply_mutation_code_patches_live_function() -> None:
@@ -457,6 +485,75 @@ def test_codes_at_site_without_a_column_matches_by_line() -> None:
     assert [c.co_qualname for c in plugin._codes_at_site(code, 4, None)] == ["outer"]
 
 
+_TWO_LINE_INNER = "def outer():\n    def inner():\n        x = 1\n        return x\n    return inner\n"
+
+
+def test_codes_at_site_without_a_column_holds_every_line_of_a_nested_function() -> None:
+    code = _outer_code(_TWO_LINE_INNER)
+
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 3, None)] == ["outer.<locals>.inner"]
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 4, None)] == ["outer.<locals>.inner"]
+
+
+def test_codes_at_site_holds_a_point_past_the_first_instruction_of_a_nested_code() -> None:
+    source = "def outer(parts):\n    return list(filter(lambda p: p is not None, parts))\n"
+    code = _outer_code(source)
+
+    picked = plugin._codes_at_site(code, 2, source.splitlines()[1].index("None"))
+
+    assert [c.co_qualname for c in picked] == ["outer.<locals>.<lambda>"]
+
+
+def test_codes_at_site_leaves_the_end_of_a_nested_extent_to_the_enclosing_function() -> None:
+    source = "def outer():\n    return (lambda: 1), 2\n"
+    code = _outer_code(source)
+    body = source.splitlines()[1].index("1")  # the lambda's body is this one character
+
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 2, body)] == ["outer.<locals>.<lambda>"]
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 2, body + 1)] == ["outer"]
+
+
+def test_codes_at_site_skips_the_positionless_instructions_of_a_closure() -> None:
+    # A closure opens with COPY_FREE_VARS, an instruction without any position; its source extent comes after it.
+    source = "def outer(value):\n    def inner():\n        return value\n    return inner\n"
+    code = _outer_code(source)
+    inner = next(const for const in code.co_consts if isinstance(const, types.CodeType))
+    assert next(iter(inner.co_positions())) == (None, None, None, None)
+
+    picked = plugin._codes_at_site(code, 3, source.splitlines()[2].index("value"))
+
+    assert [c.co_qualname for c in picked] == ["outer.<locals>.inner"]
+
+
+def _outer_code_with_stripped_columns(source: str, *, keep_multiline_start: bool = False) -> types.CodeType:
+    """The outer function compiled from a tree whose nodes lost their columns, the way ``-X no_debug_ranges``
+    compiles. ``keep_multiline_start`` leaves a node that spans several lines its start column: half a pair."""
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.expr | ast.stmt):
+            if not keep_multiline_start or node.end_lineno == node.lineno:
+                node.col_offset = -1
+            node.end_col_offset = -1
+    return next(const for const in compile(tree, "t.py", "exec").co_consts if isinstance(const, types.CodeType))
+
+
+def test_codes_at_site_falls_back_to_lines_for_code_compiled_without_columns() -> None:
+    code = _outer_code_with_stripped_columns(_TWO_LINE_INNER)
+
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 3, 12)] == ["outer.<locals>.inner"]
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 5, 4)] == ["outer"]
+
+
+def test_codes_at_site_counts_half_a_column_pair_by_its_lines() -> None:
+    # Column 0 lies before every start column that is left: read as spans, the half pairs would exclude it.
+    source = "def outer():\n    def inner():\n        return [\n            1,\n        ]\n    return inner\n"
+    code = _outer_code_with_stripped_columns(source, keep_multiline_start=True)
+    inner = next(const for const in code.co_consts if isinstance(const, types.CodeType))
+    assert (3, 5, 8, None) in inner.co_positions()
+
+    assert [c.co_qualname for c in plugin._codes_at_site(code, 3, 0)] == ["outer.<locals>.inner"]
+
+
 def test_arm_touch_marker_noop_without_path() -> None:
     def f() -> int:
         return 0
@@ -578,6 +675,20 @@ def test_apply_mutation_refuses_a_foreign_definition_behind_an_unwrapped_decorat
     }
     assert apply_mutation(module, spec) is ApplyOutcome.UNSUPPORTED
     assert module.f(1) == 2
+
+
+def test_apply_mutation_refuses_a_foreign_definition_whose_closure_would_fit() -> None:
+    # Neither the stand-in nor the decorated body closes over anything, so the graft itself would go through.
+    source = "def stand_in(a):\n    return 0\ndef deco(fn):\n    return stand_in\n@deco\ndef f(a):\n    return a + 1\n"
+    module = _module("m_stand_in", source)
+    spec: MutantSpec = {
+        "module": "m_stand_in",
+        "qualname": "f",
+        "kind": "src",
+        "mutated_source": source.replace("a + 1", "a - 1"),
+    }
+    assert apply_mutation(module, spec) is ApplyOutcome.UNSUPPORTED
+    assert module.stand_in(5) == 0
 
 
 def test_apply_mutation_defaults_missing_index_is_unsupported() -> None:

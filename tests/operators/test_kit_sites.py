@@ -10,6 +10,8 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterator
 
+import pytest
+
 from balamut.core.mutants import Mutant, apply_mutant
 from balamut.core.source_spans import line_byte_starts, node_byte_span
 from balamut.operators.facts import EnumContext, OperatorKind, enumerate_facts
@@ -25,6 +27,7 @@ from balamut.operators.kit import (
     NodeInSet,
     RegexRuleSite,
     Rewrite,
+    SiteFinder,
     SwapCallArgs,
     ValueOf,
     assignment_target,
@@ -592,3 +595,125 @@ def test_region_rewrite_records_itself_as_the_fact() -> None:
     mutants = kind.enumerate("t.py", "if a:\n    pass\n")
     assert mutants
     assert all(mutant.fact is kind for mutant in mutants)
+
+
+# --- Finders: hosts they do not own, unpositioned arguments, the operator contract ---------
+
+
+def _name_node(source: str = "x\n") -> tuple[ast.Name, EnumContext]:
+    tree = ast.parse(source)
+    return next(n for n in ast.walk(tree) if isinstance(n, ast.Name)), context("t.py", source, tree=tree)
+
+
+def test_table_finders_yield_nothing_for_a_node_of_another_type() -> None:
+    from balamut.operators.kit import (
+        AugAssignSwapSite,
+        BinaryOperand,
+        BinopSwapSite,
+        BoolopSwapSite,
+        CompareSwapSite,
+        DropEachKeyword,
+        SwapAdjacentArgs,
+    )
+
+    name, ctx = _name_node()
+    assert list(DropKeyword(name="timeout").find(name, ctx)) == []
+    assert list(DropEachKeyword().find(name, ctx)) == []
+    assert list(SwapAdjacentArgs().find(name, ctx)) == []
+    assert list(BinaryOperand(side="left").find(name, ctx)) == []
+    assert list(CompareSwapSite(((ast.Lt, ast.LtE),)).find(name, ctx)) == []
+    assert list(BinopSwapSite(((ast.Add, ast.Sub),)).find(name, ctx)) == []
+    assert list(AugAssignSwapSite(((ast.Add, ast.Sub),)).find(name, ctx)) == []
+    assert list(BoolopSwapSite(((ast.And, ast.Or),)).find(name, ctx)) == []
+
+
+def test_number_shift_site_ignores_a_constant_that_is_not_a_number() -> None:
+    from balamut.operators.kit import NumberShiftSite
+
+    source = "x = 'text'\ny = None\n"
+    tree = ast.parse(source)
+    ctx = context("t.py", source, tree=tree)
+    for constant in (n for n in ast.walk(tree) if isinstance(n, ast.Constant)):
+        assert list(NumberShiftSite(1).find(constant, ctx)) == []
+
+
+def _call_with_unpositioned_argument(source: str, index: int) -> tuple[ast.Call, EnumContext]:
+    tree = ast.parse(source)
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call))
+    call.args[index].end_lineno = None
+    return call, context("t.py", source, tree=tree)
+
+
+def test_argument_drops_skip_a_call_with_an_unpositioned_argument() -> None:
+    # A separator splice needs the byte span of every argument: one argument without it voids the whole call.
+    from balamut.operators.kit import DropArgument
+
+    call, ctx = _call_with_unpositioned_argument("clamp(x, 0, 100)\n", 2)
+    assert list(DropArgument(index=0).find(call, ctx)) == []
+    assert list(DropEachArgument().find(call, ctx)) == []
+
+
+def test_drop_each_keyword_skips_only_the_unpositioned_value() -> None:
+    from balamut.operators.kit import DropEachKeyword
+
+    source = "fetch(url, a=1, b=2, c=3)\n"
+    tree = ast.parse(source)
+    ctx = context("t.py", source, tree=tree)
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call))
+    call.keywords[0].value.end_lineno = None
+
+    spans = [span for _target, _text, span, _operator, _bc in DropEachKeyword().find(call, ctx) if span is not None]
+
+    assert [source[:start] + source[end:] for start, end in spans] == [
+        "fetch(url, a=1, c=3)\n",
+        "fetch(url, a=1, b=2)\n",
+    ]
+
+
+def test_rewrite_rejects_a_site_without_an_operator_when_the_fact_names_none() -> None:
+    from balamut.operators.kit import BinaryOperand
+
+    kind = (Rewrite(match=node_is(ast.BinOp), transform=BinaryOperand(side="left")),)
+    with pytest.raises(ValueError, match="Rewrite: a site yielded no operator and the fact names none"):
+        enumerate_facts("t.py", "def f():\n    return a + b\n", (kind,))
+
+
+def _spliced(source: str, finder: SiteFinder) -> list[str]:
+    """The source after each splice the finder yields over the first call of ``source``."""
+    tree = ast.parse(source)
+    ctx = context("t.py", source, tree=tree)
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call))
+    spans = [span for _target, _text, span, _operator, _bc in finder.find(call, ctx) if span is not None]
+    return [source[:start] + source[end:] for start, end in spans]
+
+
+def test_drop_each_keyword_drops_every_named_keyword_and_leaves_a_splat() -> None:
+    from balamut.operators.kit import DropEachKeyword
+
+    assert _spliced("fetch(**extra, a=1, b=2)\n", DropEachKeyword()) == [
+        "fetch(**extra, b=2)\n",
+        "fetch(**extra, a=1)\n",
+    ]
+
+
+def test_swap_adjacent_args_skips_an_identical_pair_and_goes_on() -> None:
+    from balamut.operators.kit import SwapAdjacentArgs
+
+    source = "g(a, a, b)\n"
+    tree = ast.parse(source)
+    ctx = context("t.py", source, tree=tree)
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call))
+
+    assert [text for _target, text, _span, _operator, _bc in SwapAdjacentArgs().find(call, ctx)] == ["g(a, b, a)"]
+
+
+def test_assignment_target_matches_a_part_of_the_target() -> None:
+    # With a parent map that links an expression to its statement, a name inside the target is part of it.
+    source = "a, b = pair\nobj.field: int = 1\ntotal[key] += 1\n"
+    tree = ast.parse(source)
+    ctx = context("t.py", source, tree=tree)
+    assert ctx.parents is not None
+    for statement, name in zip(tree.body, ("a", "obj", "total"), strict=True):
+        part = next(n for n in ast.walk(statement) if isinstance(n, ast.Name) and n.id == name)
+        ctx.parents[id(part)] = statement
+        assert assignment_target().matches(part, ctx) is True

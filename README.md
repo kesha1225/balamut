@@ -8,8 +8,8 @@ counts — and coverage is line-level per test: a line that no covering test act
 a false survivor. The verdict store is cached by content, so a changed test re-judges only the mutants it
 touches and a fully cached campaign re-runs in seconds.
 
-balamut gating its own whole tree, 21,199 mutants over its own 2,690-test suite: **20,163 killed**, 275 accepted
-with a written reason, the gate clean; ~45 minutes cold on 4 daemons, ~50 seconds fully cached.
+balamut gating its own whole tree, 21,453 mutants over its own 2,728-test suite: **20,588 killed**, 273 accepted
+with a written reason, the gate clean; ~35 minutes cold on 4 daemons, ~50 seconds fully cached.
 
 A branch changed `age >= 18` to `age >= 21` and `return high` to `return min(high, value)`; no test checks the new
 boundary and no test reaches the second line:

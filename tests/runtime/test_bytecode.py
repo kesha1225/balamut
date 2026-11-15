@@ -629,20 +629,21 @@ def test_surgical_diff_refuses_an_edit_that_dropped_an_instruction() -> None:
 
 def test_find_leaves_the_instruction_after_a_leading_extended_arg_alone() -> None:
     # The prefix check reads the word before the instruction, and the instruction of the second word has one too.
+    # CPython 3.15 gives RESUME a cache word, which reads back as a cache entry whatever it holds: the first two words
+    # become a NOP and the constant load, found at the position of the second word.
     def f() -> int:
         return 0
 
     code = f.__code__
-    offset = _first_const_load_offset(code, 0)
-    assert offset == 2
-    lineno, _end_lineno, col, end_col = tuple(code.co_positions())[offset // 2]
+    second = code.replace(co_code=bytes([dis.opmap["NOP"], 0, _SMALL_INT, 0]) + code.co_code[4:])
+    lineno, _end_lineno, col, end_col = tuple(second.co_positions())[1]
     assert lineno is not None
     assert col is not None
     assert end_col is not None
-    prefixed = code.replace(co_code=bytes([dis.opmap["EXTENDED_ARG"], 0]) + code.co_code[2:])
+    prefixed = second.replace(co_code=bytes([dis.opmap["EXTENDED_ARG"], 0]) + second.co_code[2:])
     opcodes = frozenset({_SMALL_INT})
 
-    assert _find(code, lineno=lineno, col=col, end_col=end_col, opcodes=opcodes) == (code, offset, _SMALL_INT)
+    assert _find(second, lineno=lineno, col=col, end_col=end_col, opcodes=opcodes) == (second, 2, _SMALL_INT)
     assert _find(prefixed, lineno=lineno, col=col, end_col=end_col, opcodes=opcodes) is None
 
 

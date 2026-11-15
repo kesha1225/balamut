@@ -327,6 +327,22 @@ def test_publish_creates_a_nested_pool(tmp_path: Path) -> None:
     assert (pool / published.generation).is_dir()
 
 
+def test_publish_stamps_the_entry_as_used(tmp_path: Path) -> None:
+    # Eviction orders the entries by this stamp; without it the order is the directory listing's.
+    builder, pool = tmp_path / "builder", tmp_path / "pool"
+    _source_tree(builder)
+    coverage, published = _built(builder)
+    entry = pool / published.generation
+
+    substrate_pool.pool_publish(pool, coverage, published)
+    assert substrate_pool._last_used(entry) > 0
+
+    # A build already in the pool is stamped again.
+    (entry / substrate_pool._LAST_USED).write_text("42", encoding="utf-8")
+    substrate_pool.pool_publish(pool, coverage, published)
+    assert substrate_pool._last_used(entry) > 42
+
+
 def test_seed_creates_missing_coverage_parent(tmp_path: Path) -> None:
     builder, seeded, pool = tmp_path / "builder", tmp_path / "seeded", tmp_path / "pool"
     _source_tree(builder)

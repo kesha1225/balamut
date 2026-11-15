@@ -3,9 +3,9 @@
 Loaded into daemons with ``-p balamut.runtime.plugin``. The daemon collects the original once (an empty mutant
 file means no mutation). For every request the driver writes a spec carrying a unique ``request_token`` before
 sending it. A persistent worker reads it at the first ``pytest_runtest_setup`` of the request: that is the lease
-boundary, where the worker clears the safe Python caches and prepares the new mutant. ``sys.modules`` is never
-changed: re-importing a C extension is unsafe for process-global state, and partially unloading a Python graph
-breaks the identity of singletons and registries.
+boundary, where the worker undoes the reloads of the previous lease, clears the safe Python caches and prepares the
+new mutant. ``sys.modules`` is never changed: re-importing a C extension is unsafe for process-global state, and
+partially unloading a Python graph breaks the identity of singletons and registries.
 
 A mutant is live only while a test item runs: ``pytest_runtest_setup`` applies it and ``pytest_runtest_protocol``
 reverts it once the item's teardown is over. The plugin's own code therefore never runs a mutant's code, which
@@ -19,6 +19,7 @@ session-scoped fixtures and the imported graph are paid for once per campaign.
 from __future__ import annotations
 
 import ast
+import importlib
 import json
 import multiprocessing
 import os
@@ -39,6 +40,7 @@ from balamut.runtime import kill_deps
 from balamut.runtime.bytecode import mutate_code
 from balamut.runtime.fault import fault_globals
 from balamut.runtime.inmemory import compile_function_code, patch_code, resolve_with_cache_clear
+from balamut.runtime.reloads import Follower, ReloadLog, reload_log
 from balamut.runtime.worker_reset import WorkerBaseline, capture_baseline, reset_to_baseline
 
 # None of these is fingerprinted by pytest-fast (only PYTEST_* keys and the project's own prefixes are): daemons
@@ -79,6 +81,8 @@ _ITEM = pytest.StashKey["Revert | None"]()
 _BASELINE = pytest.StashKey[WorkerBaseline]()
 # The recorder of functions a mutant lease entered (see kill_deps): one per worker, armed before collection.
 _DEPS = pytest.StashKey[kill_deps.DepsRecorder]()
+# The reloads the tests of a lease ran (see reloads): one log per worker, installed before collection.
+_RELOADS = pytest.StashKey[ReloadLog]()
 
 
 class MutantSpec(TypedDict):
@@ -274,7 +278,7 @@ def _bytecode_mutant(func: FunctionType, spec: MutantSpec) -> CodeType | None:
 
 
 type _Put = Callable[[FunctionType], Revert | None]  # edits one definition; None: the edit does not fit it
-type _Watched = Callable[[FunctionType], tuple[CodeType, ...]]  # the code the touch marker watches
+type _Watched = Callable[[tuple[FunctionType, ...]], tuple[CodeType, ...]]  # the code the touch marker watches
 
 
 def apply_mutation(module: ModuleType, spec: MutantSpec) -> ApplyOutcome:
@@ -290,13 +294,18 @@ def apply_mutation_reversible(module: ModuleType, spec: MutantSpec) -> tuple[App
     return ApplyOutcome.APPLIED, apply()
 
 
-def prepare_mutation(module: ModuleType, spec: MutantSpec) -> Apply | None:
+def prepare_mutation(
+    module: ModuleType, spec: MutantSpec, *, follow: Callable[[Follower | None], None] | None = None
+) -> Apply | None:
     """Resolve the mutant's target and build its edit once; the returned ``apply`` puts the edit into the process
     and returns its revert. None means UNSUPPORTED: no definition, no edit, or an edit that does not fit.
 
     CODE swaps ``__code__``; DEFAULTS replaces ``__defaults__``. ``apply`` arms the touch marker before it edits
-    anything, so the marker is armed by unmutated code even when the mutant edits this module."""
-    func, cache_clear = resolve_with_cache_clear(module, spec["qualname"])
+    anything, so the marker is armed by unmutated code even when the mutant edits this module. ``follow`` registers
+    the callback a reload of a module calls during the item: a reload of ``module`` binds a new definition, which
+    takes the edit at once and again at every later ``apply``."""
+    qualname = spec["qualname"]
+    func, cache_clear = resolve_with_cache_clear(module, qualname)
     if func is None:
         return None
     edit = _defaults_edit(spec) if spec.get("mechanism") == ApplyMechanism.DEFAULTS.value else _code_edit(func, spec)
@@ -307,18 +316,46 @@ def prepare_mutation(module: ModuleType, spec: MutantSpec) -> Apply | None:
     if trial is None:
         return None
     trial()
+    targets: list[tuple[FunctionType, Revert]] = [(func, cache_clear)]
     touch_path = spec.get("touch_path")
 
     def apply() -> Revert:
-        disarm = _arm_touch_marker(watched(func), touch_path)
-        # The wrapper cache is empty here: resolving the target cleared it, and so did the previous revert.
-        undo = put(func)
+        disarm = _arm_touch_marker(watched(tuple(target for target, _clear in targets)), touch_path)
+        reverts: list[Revert] = []
+
+        def put_on(target: FunctionType, clear: Revert) -> None:
+            # The wrapper cache is empty here: resolving the target cleared it, and so did the previous revert.
+            undo = put(target)
+            if undo is None:
+                return
+
+            def revert_target() -> None:
+                undo()
+                clear()  # a wrapper cache filled by the mutant must not answer for the original
+
+            reverts.append(revert_target)
+
+        for target, clear in targets:
+            put_on(target, clear)
+
+        def carry(reloaded: ModuleType) -> None:
+            if reloaded is not module:
+                return  # resolving the target would clear its wrapper cache for nothing
+            fresh, clear = resolve_with_cache_clear(module, qualname)
+            if fresh is None:
+                return  # the reloaded body no longer defines the target
+            targets.append((fresh, clear))
+            put_on(fresh, clear)
+
+        if follow is not None:
+            follow(carry)
 
         def revert() -> None:
+            if follow is not None:
+                follow(None)
             try:
-                if undo is not None:
-                    undo()
-                    cache_clear()  # a wrapper cache filled by the mutant must not answer for the original
+                for revert_target in reversed(reverts):
+                    revert_target()
             finally:
                 disarm()
 
@@ -351,7 +388,7 @@ def _code_edit(func: FunctionType, spec: MutantSpec) -> tuple[_Put, _Watched] | 
         except ValueError:  # freevars/cellvars mismatch: the body changed its closure
             return None
 
-    def watched(_target: FunctionType) -> tuple[CodeType, ...]:
+    def watched(_targets: tuple[FunctionType, ...]) -> tuple[CodeType, ...]:
         return codes
 
     return put, watched
@@ -384,8 +421,8 @@ def _defaults_edit(spec: MutantSpec) -> tuple[_Put, _Watched] | None:
 
         return undo
 
-    def watched(target: FunctionType) -> tuple[CodeType, ...]:
-        return (target.__code__,)
+    def watched(targets: tuple[FunctionType, ...]) -> tuple[CodeType, ...]:
+        return tuple(target.__code__ for target in targets)
 
     return put, watched
 
@@ -481,6 +518,25 @@ def pytest_load_initial_conftests(early_config: pytest.Config) -> None:
         early_config.stash[_DEPS] = recorder
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Route ``importlib.reload`` of a campaign daemon through its reload log (see reloads).
+
+    Installed before collection, so a test module that imports ``reload`` by name binds the hook too. Workers inherit
+    the hook and the log through the fork; the cleanup puts the replaced function back."""
+    if not os.environ.get(MUTANT_FILE_ENV) or _RELOADS in config.stash:
+        return
+    replaced = importlib.reload
+    log = reload_log(replaced)
+    importlib.reload = log.reload
+    config.stash[_RELOADS] = log
+
+    def uninstall() -> None:
+        if importlib.reload is log.reload:
+            importlib.reload = replaced
+
+    config.add_cleanup(uninstall)
+
+
 def _deps_recorder(session: pytest.Session) -> kill_deps.DepsRecorder | None:
     return session.config.stash.get(_DEPS, None)
 
@@ -529,17 +585,21 @@ def _apply_or_switch(item: pytest.Item) -> None:
 
     The driver puts a unique ``request_token`` into the raw spec. The same raw text means the next item of the same
     lease: the mutant is applied again over the process state the lease's earlier items left. Different text is a
-    boundary: the safe Python state goes back to the baseline, then the new mutant is prepared. The mutant of the
-    previous item is already reverted by ``pytest_runtest_protocol``."""
+    boundary: the reloads of the previous lease are undone, the safe Python state goes back to the baseline, then
+    the new mutant is prepared. The mutant of the previous item is already reverted by ``pytest_runtest_protocol``."""
     spec_path = os.environ.get(MUTANT_FILE_ENV)
     if not spec_path:
         return
     session = item.session
+    reloads = session.config.stash.get(_RELOADS, None)
     baseline = session.stash.get(_BASELINE, None)
     if baseline is None:
-        # The first mutant of this worker: snapshot the process (after collection) as the reference.
+        # The first mutant of this worker: snapshot the process (after collection) as the reference. A reload run at
+        # collection is part of that reference.
         baseline = capture_baseline()
         session.stash[_BASELINE] = baseline
+        if reloads is not None:
+            reloads.forget()
     lease = session.stash.get(_STATE, None)
     path = Path(spec_path)
     raw: str | None = None
@@ -550,7 +610,7 @@ def _apply_or_switch(item: pytest.Item) -> None:
             _mark_unsupported(spec_path)
     if raw is None:
         # No lease: the tests of this request run against the original.
-        reset_to_baseline(baseline)
+        _reset(baseline, reloads)
         session.stash[_STATE] = None
         _deps_lease(session, None)
         return
@@ -558,13 +618,22 @@ def _apply_or_switch(item: pytest.Item) -> None:
         session.stash[_ITEM] = lease.apply()  # the next item of the same lease: no reset, it would clear every cache
         return
     if lease is not None:
-        reset_to_baseline(baseline)
-    lease = _start_lease(item, raw=raw, spec_path=spec_path, baseline=baseline)
+        _reset(baseline, reloads)
+    lease = _start_lease(item, raw=raw, spec_path=spec_path, baseline=baseline, reloads=reloads)
     session.stash[_STATE] = lease
     session.stash[_ITEM] = lease.apply()
 
 
-def _start_lease(item: pytest.Item, *, raw: str, spec_path: str, baseline: WorkerBaseline) -> _Lease:
+def _reset(baseline: WorkerBaseline, reloads: ReloadLog | None) -> None:
+    """A lease boundary: the reloads of the previous lease are undone and the baseline caches cleared."""
+    if reloads is not None:
+        reloads.undo()
+    reset_to_baseline(baseline)
+
+
+def _start_lease(
+    item: pytest.Item, *, raw: str, spec_path: str, baseline: WorkerBaseline, reloads: ReloadLog | None
+) -> _Lease:
     """The lease of a new raw spec; an unsupported mutant is marked for the driver and runs as the original.
 
     Keyword-only: the raw text and the spec path are both strings, and a swap would write the marker under a name
@@ -580,7 +649,7 @@ def _start_lease(item: pytest.Item, *, raw: str, spec_path: str, baseline: Worke
     module = _target_module(item, spec, baseline) if spec is not None else None
     apply = None
     if spec is not None and module is not None:
-        apply = prepare_mutation(module, spec)
+        apply = prepare_mutation(module, spec, follow=reloads.follow if reloads is not None else None)
     if apply is None:
         _mark_unsupported(spec_path)
         return _Lease(raw, _noop_apply)

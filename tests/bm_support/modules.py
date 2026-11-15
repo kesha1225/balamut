@@ -14,9 +14,9 @@ def reloaded(module: ModuleType) -> Generator[ModuleType]:
 
     A reload re-runs the module and class bodies, so the coverage substrate attributes those import-time lines to
     the test. It also binds a new object to every function and class name of the module, while the other test
-    files keep the objects they imported. balamut applies a mutant to the objects the module holds when the mutant
-    starts, and its workers outlive a test: without the restore, every later test in the worker that calls an
-    imported name runs the original code and the mutant survives."""
+    files keep the objects they imported: the restore leaves the later tests of the process the one set of objects
+    they all imported, so a test comparing a module's binding with an imported name by identity holds in any
+    order."""
     namespace = dict(module.__dict__)
     try:
         yield importlib.reload(module)

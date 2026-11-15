@@ -7,18 +7,21 @@ including the early exits on a missing, unreadable or broken spec.
 
 from __future__ import annotations
 
+import importlib
 import json
 import multiprocessing
 import os
 import sys
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
 import pytest
 
 from balamut.runtime import plugin
+from balamut.runtime.reloads import Follower, ReloadLog, reload_log
 from balamut.runtime.worker_reset import WorkerBaseline
 from bm_support.plugin_fakes import FakeItem, FakeSession
 
@@ -310,7 +313,13 @@ def test_switch_unprepared_mutant_marks_unsupported(monkeypatch: pytest.MonkeyPa
     _module, session = _real_module_in_baseline()
     try:
 
-        def prepare_none(_module: types.ModuleType, _spec: plugin.MutantSpec) -> plugin.Apply | None:
+        def prepare_none(
+            _module: types.ModuleType,
+            _spec: plugin.MutantSpec,
+            *,
+            follow: Callable[[Follower | None], None] | None = None,
+        ) -> plugin.Apply | None:
+            del follow
             return None
 
         monkeypatch.setattr(plugin, "prepare_mutation", prepare_none)
@@ -397,7 +406,13 @@ def test_switch_does_not_apply_to_a_missing_module(monkeypatch: pytest.MonkeyPat
     session.stash[plugin._BASELINE] = WorkerBaseline(frozenset(sys.modules), ())
     calls: list[object] = []
 
-    def prepare_spy(module: types.ModuleType, _spec: plugin.MutantSpec) -> plugin.Apply | None:
+    def prepare_spy(
+        module: types.ModuleType,
+        _spec: plugin.MutantSpec,
+        *,
+        follow: Callable[[Follower | None], None] | None = None,
+    ) -> plugin.Apply | None:
+        del follow
         calls.append(module)
         return None
 
@@ -507,3 +522,224 @@ def test_runtest_protocol_reverts_the_mutant_when_the_protocol_raises() -> None:
     with pytest.raises(RuntimeError, match="item"):
         wrapper.throw(RuntimeError("item"))
     assert reverted == [True]
+
+
+@dataclass
+class _Config:
+    stash: pytest.Stash = field(default_factory=pytest.Stash)
+    cleanups: list[Callable[[], None]] = field(default_factory=list[Callable[[], None]])
+
+    def add_cleanup(self, cleanup: Callable[[], None]) -> None:
+        self.cleanups.append(cleanup)
+
+
+def test_configure_routes_reload_through_the_log_until_cleanup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    replaced = importlib.reload
+    monkeypatch.setattr(importlib, "reload", replaced)  # put back whatever happens below
+    monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(tmp_path / "m.json"))
+    config = _Config()
+
+    plugin.pytest_configure(cast("pytest.Config", config))
+
+    log = config.stash[plugin._RELOADS]
+    assert importlib.reload is log.reload
+    plugin.pytest_configure(cast("pytest.Config", config))
+    assert importlib.reload is log.reload  # configured once per config
+    for cleanup in config.cleanups:
+        cleanup()
+    assert importlib.reload is replaced
+
+
+def test_configure_leaves_reload_alone_outside_a_campaign(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(plugin.MUTANT_FILE_ENV, raising=False)
+    replaced = importlib.reload
+    config = _Config()
+
+    plugin.pytest_configure(cast("pytest.Config", config))
+
+    assert importlib.reload is replaced
+    assert plugin._RELOADS not in config.stash
+
+
+@pytest.fixture
+def reloadable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[types.ModuleType]:
+    """``bm_reload_target`` importable from disk, so a real reload executes its body again."""
+    (tmp_path / "bm_reload_target.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "path", [str(tmp_path), *sys.path])
+    module = importlib.import_module("bm_reload_target")
+    try:
+        yield module
+    finally:
+        sys.modules.pop("bm_reload_target", None)
+
+
+def _run_item(session: FakeSession, check: Callable[[], None] = lambda: None) -> None:
+    """One test item as a worker runs it: the protocol wrapper around the setup that applies the lease's mutant."""
+    item = cast("pytest.Item", FakeItem(session))
+    wrapper = plugin.pytest_runtest_protocol(item)
+    next(wrapper)
+    plugin._apply_or_switch(item)
+    check()
+    with pytest.raises(StopIteration):
+        wrapper.send(True)
+
+
+def _reload_session(spec_path: Path) -> tuple[FakeSession, ReloadLog]:
+    session = FakeSession()
+    log = reload_log(importlib.reload)
+    session.config.stash[plugin._RELOADS] = log
+    session.stash[plugin._BASELINE] = WorkerBaseline(frozenset(sys.modules), ())
+    spec_path.write_text("", encoding="utf-8")
+    return session, log
+
+
+def test_a_reload_in_a_lease_takes_the_mutant_and_is_undone_at_the_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, reloadable: types.ModuleType
+) -> None:
+    spec = tmp_path / "m.json"
+    monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
+    session, log = _reload_session(spec)
+    imported = reloadable.f  # what `from bm_reload_target import f` in another test file holds
+    spec.write_text(
+        json.dumps(
+            {
+                "module": "bm_reload_target",
+                "qualname": "f",
+                "kind": "src",
+                "mutated_source": "def f():\n    return 2\n",
+                "request_token": "lease-a",
+            }
+        ),
+        encoding="utf-8",
+    )
+    reloaded: list[Callable[[], int]] = []
+
+    def reload_in_the_test() -> None:
+        log.reload(reloadable)
+        reloaded.append(reloadable.f)
+        assert reloadable.f is not imported
+        assert (imported(), reloadable.f()) == (2, 2)  # both definitions run the mutant, as on an edited file
+
+    _run_item(session, reload_in_the_test)
+    assert (imported(), reloaded[0]()) == (1, 1)  # reverted after the item
+
+    def both_mutated() -> None:
+        assert (imported(), reloaded[0]()) == (2, 2)
+
+    _run_item(session, both_mutated)  # the next item of the lease edits both definitions
+
+    spec.write_text("", encoding="utf-8")
+    _run_item(session)  # the boundary into the next lease
+
+    assert reloadable.f is imported
+
+
+def test_a_reload_at_collection_is_part_of_the_baseline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, reloadable: types.ModuleType
+) -> None:
+    spec = tmp_path / "m.json"
+    monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
+    session, log = _reload_session(spec)
+    del session.stash[plugin._BASELINE]
+    log.reload(reloadable)
+    collected = reloadable.f
+
+    _run_item(session)  # the first item of the worker takes the baseline
+    spec.write_text(json.dumps({"request_token": "next"}), encoding="utf-8")
+    _run_item(session)
+
+    assert reloadable.f is collected
+
+
+def _mutant_spec(token: str) -> str:
+    return json.dumps(
+        {
+            "module": "bm_reload_target",
+            "qualname": "f",
+            "kind": "src",
+            "mutated_source": "def f():\n    return 2\n",
+            "request_token": token,
+        }
+    )
+
+
+def _rewrite(module: types.ModuleType, source: str) -> None:
+    """Change the module's file, so the next reload executes ``source``."""
+    assert module.__file__ is not None
+    Path(module.__file__).write_text(source, encoding="utf-8")
+    importlib.invalidate_caches()
+
+
+def test_a_reload_after_the_item_runs_the_original(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, reloadable: types.ModuleType
+) -> None:
+    # Between the items, and in the original lease of a paired kill, nothing must put the mutant back.
+    spec = tmp_path / "m.json"
+    monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
+    session, log = _reload_session(spec)
+    spec.write_text(_mutant_spec("lease-a"), encoding="utf-8")
+    _run_item(session)
+
+    log.reload(reloadable)
+
+    assert reloadable.f() == 1
+
+
+def test_a_reload_that_drops_the_target_leaves_the_imported_definition_mutated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, reloadable: types.ModuleType
+) -> None:
+    spec = tmp_path / "m.json"
+    monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
+    session, log = _reload_session(spec)
+    imported = reloadable.f
+    spec.write_text(_mutant_spec("lease-a"), encoding="utf-8")
+
+    def reload_without_f() -> None:
+        _rewrite(reloadable, "f = None\n")
+        log.reload(reloadable)
+        assert imported() == 2
+
+    _run_item(session, reload_without_f)
+    assert imported() == 1
+
+
+def test_a_reload_that_binds_another_function_leaves_it_unmutated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, reloadable: types.ModuleType
+) -> None:
+    # The name now holds a definition compiled under another qualname: the edit does not fit it.
+    spec = tmp_path / "m.json"
+    monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
+    session, log = _reload_session(spec)
+    imported = reloadable.f
+    spec.write_text(_mutant_spec("lease-a"), encoding="utf-8")
+
+    def reload_with_an_alias() -> None:
+        _rewrite(reloadable, "def g():\n    return 0\n\n\nf = g\n")
+        log.reload(reloadable)
+        assert (imported(), reloadable.f()) == (2, 0)
+
+    _run_item(session, reload_with_an_alias)
+    assert (imported(), reloadable.f()) == (1, 0)
+
+
+def test_a_reload_of_another_module_leaves_the_target_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, reloadable: types.ModuleType
+) -> None:
+    _rewrite(reloadable, "from functools import lru_cache\n\n\n@lru_cache\ndef f():\n    return 1\n")
+    target = importlib.reload(reloadable)
+    (tmp_path / "bm_reload_other.py").write_text("X = 1\n", encoding="utf-8")
+    other = importlib.import_module("bm_reload_other")
+    spec = tmp_path / "m.json"
+    monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
+    try:
+        session, log = _reload_session(spec)
+        spec.write_text(_mutant_spec("lease-a"), encoding="utf-8")
+
+        def reload_the_other_module() -> None:
+            assert target.f() == 2
+            log.reload(other)
+            assert target.f.cache_info().currsize == 1
+
+        _run_item(session, reload_the_other_module)
+    finally:
+        sys.modules.pop("bm_reload_other", None)

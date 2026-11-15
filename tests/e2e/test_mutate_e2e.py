@@ -176,3 +176,30 @@ def test_a_test_written_for_a_survivor_kills_it_on_the_next_campaign(tmp_path: P
     assert killed["killed_by"] == ["tests/test_calc.py::test_adult_from_18"]
     assert "measuring the suite under coverage" not in second.stderr
     assert "coverage refresh: 1 files diverged from the substrate" in second.stderr
+
+
+def test_a_reload_in_one_lease_leaves_the_next_lease_the_imported_definitions(tmp_path: Path) -> None:
+    # One persistent worker. Every lease of `double` runs test_reload_calc, which reloads pkg.calc: the module then
+    # binds new definitions, while test_calc.py keeps the `triple` it imported at collection. The leases of `triple`
+    # come next; test_triple_runs enters whatever the module binds, so each of them is touched either way, and only
+    # the imported `triple` can kill. The reload must not outlive its lease.
+    root = make_project(
+        tmp_path / "proj",
+        {
+            "src/pkg/calc.py": "def double(x):\n    return x * 2\n\n\ndef triple(x):\n    return x * 3\n",
+            "tests/test_calc.py": "from pkg.calc import triple\n\n\ndef test_triple():\n    assert triple(2) == 6\n",
+            "tests/test_reload.py": (
+                "import importlib\n\nimport pkg.calc\n\n\n"
+                "def test_reload_calc():\n    importlib.reload(pkg.calc)\n    pkg.calc.double(0)\n"
+            ),
+            "tests/test_module_calls.py": "import pkg.calc\n\n\ndef test_triple_runs():\n    pkg.calc.triple(0)\n",
+        },
+    )
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+    rows = _rows(_mutate(root, None, "--daemons", "1"))
+
+    triple = [row for row in rows if row["lineno"] == 6]
+    assert len(triple) == 3
+    assert {str(row["status"]) for row in triple} == {"killed"}
+    assert {str(row["status"]) for row in rows if row["lineno"] == 2} == {"survived"}  # the reloads did run

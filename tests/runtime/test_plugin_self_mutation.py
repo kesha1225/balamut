@@ -25,6 +25,7 @@ import pytest
 from balamut.engine.identify import identify
 from balamut.operators.src import enumerate_mutants
 from balamut.runtime import plugin
+from balamut.runtime.reloads import reload_log
 from bm_support.plugin_fakes import FakeItem, FakeSession
 
 _COPY = "bm_plugin_copy"
@@ -92,6 +93,7 @@ def test_no_mutant_of_the_plugin_outlives_its_lease(
     spec_file = tmp_path / "mutant.json"
     monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec_file))
     session = FakeSession()
+    session.config.stash[copy._RELOADS] = reload_log(importlib.reload)
     namespace = dict(vars(copy))
     reference = _definitions(copy)
     tools = {tool: sys.monitoring.get_tool(tool) for tool in plugin._MONITORING_TOOL_IDS}

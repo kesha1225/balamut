@@ -1,8 +1,8 @@
 """Switching mutants inside a persistent worker (balamut.runtime.plugin._apply_or_switch).
 
-A persistent worker reuses one process: a new mutant file must restore the previous mutant before the new
-request's tests run, including the early exits on a missing, unreadable or broken spec. Otherwise the tests
-would run against the stale ``__code__``/``__defaults__`` patch.
+A persistent worker reuses one process: each test item runs against the mutant of its lease and
+``pytest_runtest_protocol`` reverts it after the item, and a new mutant file starts a new lease from the baseline,
+including the early exits on a missing, unreadable or broken spec.
 """
 
 from __future__ import annotations
@@ -23,34 +23,36 @@ from balamut.runtime.worker_reset import WorkerBaseline
 from bm_support.plugin_fakes import FakeItem, FakeSession
 
 
-def _item_with_applied_prev(restored: list[bool]) -> FakeItem:
+def _session_with_lease(applied: list[str]) -> FakeSession:
     session = FakeSession()
 
-    def _restore() -> None:
-        restored.append(True)
+    def apply() -> Callable[[], None]:
+        applied.append("apply")
+        return lambda: applied.append("revert")
 
-    session.stash[plugin._STATE] = plugin._AppliedMutant("old-mutant-raw", _restore)
-    return FakeItem(session)
+    session.stash[plugin._STATE] = plugin._Lease("old-mutant-raw", apply)
+    return session
 
 
-def test_switch_restores_prev_when_mutant_file_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    restored: list[bool] = []
-    item = _item_with_applied_prev(restored)
+def test_switch_drops_the_lease_when_mutant_file_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    applied: list[str] = []
+    session = _session_with_lease(applied)
     monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(tmp_path / "gone.json"))
-    plugin._apply_or_switch(cast("pytest.Item", item))
-    assert restored == [True]
-    assert item.session.stash.get(plugin._STATE, None) is None
+    plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
+    assert applied == []
+    assert session.stash.get(plugin._STATE, None) is None
+    assert session.stash.get(plugin._ITEM, None) is None
 
 
-def test_switch_restores_prev_when_mutant_file_unreadable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    restored: list[bool] = []
-    item = _item_with_applied_prev(restored)
+def test_switch_drops_the_lease_when_mutant_file_unreadable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    applied: list[str] = []
+    session = _session_with_lease(applied)
     bad = tmp_path / "mutant_is_a_dir"
     bad.mkdir()  # read_text on a directory raises an OSError
     monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(bad))
-    plugin._apply_or_switch(cast("pytest.Item", item))
-    assert restored == [True]
-    assert item.session.stash.get(plugin._STATE, None) is None
+    plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
+    assert applied == []
+    assert session.stash.get(plugin._STATE, None) is None
 
 
 def test_switch_marks_leaked_import_target_unsupported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -90,22 +92,23 @@ def test_switch_marks_leaked_import_target_unsupported(monkeypatch: pytest.Monke
         sys.modules.pop(leaked, None)
 
 
-def test_switch_keeps_prev_applied_for_same_request_without_reset(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    # One request token is one mutant lease: between its items the patch and the process state stay in place.
-    restored: list[bool] = []
+def test_switch_applies_the_same_lease_again_without_reset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # One request token is one mutant lease: its next item gets the mutant again over the state the lease left.
+    applied: list[str] = []
     resets: list[WorkerBaseline] = []
     session = FakeSession()
     session.stash[plugin._BASELINE] = WorkerBaseline(frozenset(sys.modules), ())
-    session.stash[plugin._STATE] = plugin._AppliedMutant("same-raw", lambda: restored.append(True))
+    session.stash[plugin._STATE] = plugin._Lease("same-raw", lambda: lambda: applied.append("revert"))
     spec = tmp_path / "m.json"
     spec.write_text("same-raw", encoding="utf-8")
     monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
     monkeypatch.setattr(plugin, "reset_to_baseline", resets.append)
     plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
-    assert restored == []
     assert resets == []
+    revert = session.stash.get(plugin._ITEM, None)
+    assert revert is not None
+    revert()
+    assert applied == ["revert"]
 
 
 def test_switch_uses_request_token_as_boundary_for_same_mutant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -121,14 +124,17 @@ def test_switch_uses_request_token_as_boundary_for_same_mutant(monkeypatch: pyte
         "mutated_source": "def f():\n    return 1\n",
     }
     previous_raw = json.dumps({**base_spec, "request_token": "lease-a"})
-    session.stash[plugin._STATE] = plugin._AppliedMutant(previous_raw, lambda: restored.append(True))
+    session.stash[plugin._STATE] = plugin._Lease(previous_raw, lambda: lambda: restored.append(True))
     spec = tmp_path / "m.json"
     spec.write_text(json.dumps({**base_spec, "request_token": "lease-b"}), encoding="utf-8")
     monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
     monkeypatch.setattr(plugin, "reset_to_baseline", resets.append)
     plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
-    assert restored == [True]
+    assert restored == []  # the previous lease is not applied again
     assert resets == [baseline]
+    lease = session.stash.get(plugin._STATE, None)
+    assert lease is not None
+    assert lease.key == json.dumps({**base_spec, "request_token": "lease-b"})
 
 
 def test_empty_baseline_request_records_a_boundary_for_the_first_mutant(
@@ -172,10 +178,8 @@ def test_broken_spec_marks_unsupported(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
     plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
     assert Path(f"{spec}{plugin.UNSUPPORTED_MARKER_SUFFIX}").exists()
-    state = session.stash.get(plugin._STATE, None)
-    assert state is not None
-    assert state.key == "{broken"
-    assert state.restore is plugin._noop_restore
+    assert session.stash.get(plugin._STATE, None) == plugin._Lease("{broken", plugin._noop_apply)
+    assert session.stash.get(plugin._ITEM, None) is plugin._noop_restore
 
 
 _SELF_COVERED_MODULE = types.ModuleType("bm_self_covered_mod")
@@ -254,7 +258,7 @@ def test_switch_missing_file_resets_to_baseline(monkeypatch: pytest.MonkeyPatch,
     baseline = WorkerBaseline(frozenset(sys.modules), ())
     session = FakeSession()
     session.stash[plugin._BASELINE] = baseline
-    session.stash[plugin._STATE] = plugin._AppliedMutant("old", lambda: None)
+    session.stash[plugin._STATE] = plugin._Lease("old", plugin._noop_apply)
     monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(tmp_path / "gone.json"))
     monkeypatch.setattr(plugin, "reset_to_baseline", resets.append)
     plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
@@ -302,16 +306,14 @@ def test_switch_unsupported_apply_marks_unsupported(monkeypatch: pytest.MonkeyPa
         sys.modules.pop("bm_real_mod", None)
 
 
-def test_switch_none_restore_marks_unsupported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_switch_unprepared_mutant_marks_unsupported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _module, session = _real_module_in_baseline()
     try:
 
-        def apply_applied(
-            _module: types.ModuleType, _spec: plugin.MutantSpec
-        ) -> tuple[plugin.ApplyOutcome, Callable[[], None] | None]:
-            return (plugin.ApplyOutcome.APPLIED, None)
+        def prepare_none(_module: types.ModuleType, _spec: plugin.MutantSpec) -> plugin.Apply | None:
+            return None
 
-        monkeypatch.setattr(plugin, "apply_mutation_reversible", apply_applied)
+        monkeypatch.setattr(plugin, "prepare_mutation", prepare_none)
         spec = tmp_path / "m.json"
         spec.write_text(
             json.dumps(
@@ -322,33 +324,9 @@ def test_switch_none_restore_marks_unsupported(monkeypatch: pytest.MonkeyPatch, 
         monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
         plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
         assert Path(f"{spec}{plugin.UNSUPPORTED_MARKER_SUFFIX}").exists()
-        state = session.stash.get(plugin._STATE, None)
-        assert state is not None
-        assert state.restore is plugin._noop_restore
-    finally:
-        sys.modules.pop("bm_real_mod", None)
-
-
-def test_switch_unsupported_outcome_marks_unsupported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _module, session = _real_module_in_baseline()
-    try:
-
-        def apply_unsupported(
-            _module: types.ModuleType, _spec: plugin.MutantSpec
-        ) -> tuple[plugin.ApplyOutcome, Callable[[], None] | None]:
-            return (plugin.ApplyOutcome.UNSUPPORTED, lambda: None)
-
-        monkeypatch.setattr(plugin, "apply_mutation_reversible", apply_unsupported)
-        spec = tmp_path / "m.json"
-        spec.write_text(
-            json.dumps(
-                {"module": "bm_real_mod", "qualname": "f", "kind": "src", "mutated_source": "def f():\n    return 1\n"}
-            ),
-            encoding="utf-8",
-        )
-        monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
-        plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
-        assert Path(f"{spec}{plugin.UNSUPPORTED_MARKER_SUFFIX}").exists()
+        lease = session.stash.get(plugin._STATE, None)
+        assert lease is not None
+        assert lease.apply is plugin._noop_apply
     finally:
         sys.modules.pop("bm_real_mod", None)
 
@@ -419,11 +397,11 @@ def test_switch_does_not_apply_to_a_missing_module(monkeypatch: pytest.MonkeyPat
     session.stash[plugin._BASELINE] = WorkerBaseline(frozenset(sys.modules), ())
     calls: list[object] = []
 
-    def apply_spy(module: object, _spec: plugin.MutantSpec) -> tuple[plugin.ApplyOutcome, Callable[[], None] | None]:
+    def prepare_spy(module: types.ModuleType, _spec: plugin.MutantSpec) -> plugin.Apply | None:
         calls.append(module)
-        return (plugin.ApplyOutcome.UNSUPPORTED, None)
+        return None
 
-    monkeypatch.setattr(plugin, "apply_mutation_reversible", apply_spy)
+    monkeypatch.setattr(plugin, "prepare_mutation", prepare_spy)
     spec = tmp_path / "m.json"
     raw = json.dumps(
         {
@@ -439,7 +417,7 @@ def test_switch_does_not_apply_to_a_missing_module(monkeypatch: pytest.MonkeyPat
     assert calls == []
     assert Path(f"{spec}{plugin.UNSUPPORTED_MARKER_SUFFIX}").exists()
     # The lease still has its boundary: the next item of it is recognized, the next lease resets after it.
-    assert session.stash.get(plugin._STATE, None) == plugin._AppliedMutant(raw, plugin._noop_restore)
+    assert session.stash.get(plugin._STATE, None) == plugin._Lease(raw, plugin._noop_apply)
 
 
 def test_switch_missing_file_marks_a_lease_boundary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -480,9 +458,9 @@ def test_switch_unreadable_spec_marks_a_lease_boundary(monkeypatch: pytest.Monke
     assert leases == [(session, None)]
 
 
-def test_switch_applies_mutant_and_stores_restore(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # The successful apply path: the applied state holds the raw spec text as its key and a callable restore, so
-    # the next item of the same lease is skipped and the next lease can revert the patch.
+def test_switch_applies_mutant_and_stores_the_item_revert(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The successful apply path: the lease holds the raw spec text as its key, and the item's revert puts the
+    # original back.
     module = types.ModuleType("bm_apply_mod")
     exec(compile("def f():\n    return 1\n", "bm_apply_mod.py", "exec"), vars(module))
     sys.modules["bm_apply_mod"] = module
@@ -496,12 +474,36 @@ def test_switch_applies_mutant_and_stores_restore(monkeypatch: pytest.MonkeyPatc
         spec.write_text(raw, encoding="utf-8")
         monkeypatch.setenv(plugin.MUTANT_FILE_ENV, str(spec))
         plugin._apply_or_switch(cast("pytest.Item", FakeItem(session)))
-        state = session.stash.get(plugin._STATE, None)
-        assert state is not None
-        assert state.key == raw
-        assert callable(state.restore)
+        lease = session.stash.get(plugin._STATE, None)
+        assert lease is not None
+        assert lease.key == raw
+        revert = session.stash.get(plugin._ITEM, None)
+        assert revert is not None
         assert module.f() == 2
-        state.restore()
+        revert()
         assert module.f() == 1
     finally:
         sys.modules.pop("bm_apply_mod", None)
+
+
+def test_runtest_protocol_reverts_the_mutant_of_its_item() -> None:
+    reverted: list[bool] = []
+    session = FakeSession()
+    wrapper = plugin.pytest_runtest_protocol(cast("pytest.Item", FakeItem(session)))
+    next(wrapper)
+    session.stash[plugin._ITEM] = lambda: reverted.append(True)
+    with pytest.raises(StopIteration):
+        wrapper.send(True)
+    assert reverted == [True]
+    assert session.stash.get(plugin._ITEM, None) is None
+
+
+def test_runtest_protocol_reverts_the_mutant_when_the_protocol_raises() -> None:
+    reverted: list[bool] = []
+    session = FakeSession()
+    wrapper = plugin.pytest_runtest_protocol(cast("pytest.Item", FakeItem(session)))
+    next(wrapper)
+    session.stash[plugin._ITEM] = lambda: reverted.append(True)
+    with pytest.raises(RuntimeError, match="item"):
+        wrapper.throw(RuntimeError("item"))
+    assert reverted == [True]

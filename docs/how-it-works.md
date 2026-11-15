@@ -56,7 +56,9 @@ stop-first: the daemon stops handing out tests after the first real failure.
 
 In the worker the plugin patches the target function's `__code__` (or `__defaults__`): a size-preserving bytecode
 edit where possible, a recompiled function otherwise. A nested function is patched through its top-level ancestor.
-The edit is reverted before the next mutant, and the safe Python caches are cleared at every mutant boundary.
+The edit is live only while a test runs: applied at its setup, reverted after its teardown, so the plugin's own code
+never runs mutated code, even when balamut mutates itself. The safe Python caches are cleared at every mutant
+boundary.
 
 ## Verdict rules
 

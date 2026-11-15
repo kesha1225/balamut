@@ -27,7 +27,7 @@ env:
 jobs:
   whole-tree:
     runs-on: ubuntu-latest
-    # A cold run on a hosted runner takes hours; the verdicts it reached are cached even when it is cut off.
+    # A cold run on a hosted runner takes about an hour; the verdicts it reached are cached even when it is cut off.
     timeout-minutes: 330
     services:
       postgres:

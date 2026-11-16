@@ -106,6 +106,8 @@ def test_kill_is_accepted_only_when_killer_passes_on_immediate_original(
     # The campaign owns its slots: prepared once, recreated for a fresh confirmation, removed at the end.
     assert len(isolation.prepared) == 1 + expected_resets
     assert isolation.cleaned == [isolation.prepared[0]]
+    # The warm worker that failed the killer on the original is retired; the fresh confirmation forks per request.
+    assert len(stub.retired) == expected_resets
     assert cached is not None
     assert cached_killers == ([_KILLER] if expected is MutantStatus.KILLED else [])
 

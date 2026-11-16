@@ -199,6 +199,7 @@ class StubRecord:
     requests: list[tuple[list[str], str]] = field(default_factory=list[tuple[list[str], str]])
     fresh: list[bool] = field(default_factory=list[bool])
     fresh_transitions: list[list[str]] = field(default_factory=list[list[str]])
+    retired: list[str] = field(default_factory=list[str])  # daemons whose persistent worker a lease retired
     lifecycle: list[str] = field(default_factory=list[str])
     spawn_persistence: list[bool] = field(default_factory=list[bool])
     spawn_overlays: list[EnvOverlays] = field(default_factory=list[EnvOverlays])
@@ -312,6 +313,9 @@ def stub_campaign_runtime(
     def switch_to_fresh(pool: list[Daemon]) -> None:
         record.fresh_transitions.append([item.address for item in pool])
 
+    def retire(target: Daemon) -> None:
+        record.retired.append(target.address)
+
     def fake_adopt_pool(
         address_base: str, daemons: int, workers: int, env: EnvMap, scratch: Path, *, persist_workers: bool = True
     ) -> list[Daemon] | None:
@@ -329,6 +333,7 @@ def stub_campaign_runtime(
     monkeypatch.setattr(campaign, "report_timing", _no_timing)
     monkeypatch.setattr(campaign, "switch_pool_to_fresh_workers", switch_to_fresh)
     monkeypatch.setattr(worker, "respawn_daemon", _no_respawn)
+    monkeypatch.setattr(worker, "retire_persistent_pool", retire)
     monkeypatch.setattr(worker, "run_subset_guarded", fake_guarded)
     monkeypatch.setattr(worker, "persist_verdict", record_persist)
     return record

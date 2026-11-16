@@ -535,6 +535,20 @@ def test_a_failed_fresh_switch_is_reported(tmp_path: Path, monkeypatch: pytest.M
     assert respawned[0] is pool[0]
 
 
+def test_retiring_a_persistent_pool_sends_one_empty_fresh_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[RequestCall] = []
+    monkeypatch.setattr(daemon, "request", _recording_request(calls, rc=0, fail=lambda _ids: []))
+    target = fake_daemon(tmp_path)
+    target.mutant_file.write_text("{}", encoding="utf-8")
+
+    daemon.retire_persistent_pool(target)
+
+    assert calls == [([], False, True)]
+    assert not target.mutant_file.read_text(encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # _record_result: zero durations, the phase-less max path, and phase validation.
 # ---------------------------------------------------------------------------

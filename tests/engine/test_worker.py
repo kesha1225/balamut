@@ -133,6 +133,18 @@ def _fake_respawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return respawns
 
 
+@pytest.fixture(autouse=True)
+def retired(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The daemons whose persistent pytest worker a lease retired; no test reaches a real daemon this way."""
+    addresses: list[str] = []
+
+    def record_retire(daemon: Daemon) -> None:
+        addresses.append(daemon.address)
+
+    monkeypatch.setattr(worker, "retire_persistent_pool", record_retire)
+    return addresses
+
+
 def _clock(monkeypatch: pytest.MonkeyPatch, values: list[float]) -> None:
     it = iter(values)
     monkeypatch.setattr(worker.time, "monotonic", lambda: next(it))
@@ -660,6 +672,77 @@ def test_process_failure_with_original_failure_is_unstable_not_a_process_kill(
     assert "original-failure" in stream.text()
     assert "tests/x_test.py::test_a" in stream.text()
     assert "process-kill" not in stream.text()
+
+
+def test_a_killer_failing_on_the_original_retires_the_persistent_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retired: list[str]
+) -> None:
+    # The worker that fails a killer on the original carries state an earlier request left: the next mutant must
+    # not inherit it, or every later kill of the daemon is rejected the same way.
+    item = work(0, mutant("src/x.py", 10), covering=("tests/x_test.py::test_a",))
+    daemon = fake_daemon(tmp_path)
+    results: dict[int, MutantResult] = {}
+    _fake_guarded(
+        monkeypatch, [RunResult(1, {}, ["tests/x_test.py::test_a"]), RunResult(1, {}, ["tests/x_test.py::test_a"])]
+    )
+
+    _make_lease(daemon, results=results).run(item)
+
+    assert results[0].status is MutantStatus.SURVIVED
+    assert retired == [daemon.address]
+
+
+def test_one_killer_failing_on_the_original_retires_the_worker_while_another_confirms_the_kill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retired: list[str]
+) -> None:
+    item = work(0, mutant("src/x.py", 10), covering=("tests/x_test.py::test_a", "tests/x_test.py::test_b"))
+    daemon = fake_daemon(tmp_path)
+    results: dict[int, MutantResult] = {}
+    _fake_guarded(
+        monkeypatch,
+        [
+            RunResult(1, {}, ["tests/x_test.py::test_a", "tests/x_test.py::test_b"]),
+            RunResult(1, {}, ["tests/x_test.py::test_a"]),
+        ],
+    )
+
+    _make_lease(daemon, results=results).run(item)
+
+    assert results[0].status is MutantStatus.KILLED
+    assert results[0].killed_by == ("tests/x_test.py::test_b",)
+    assert retired == [daemon.address]
+
+
+def test_a_killer_green_on_the_original_keeps_the_persistent_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retired: list[str]
+) -> None:
+    item = work(0, mutant("src/x.py", 10), covering=("tests/x_test.py::test_a",))
+    daemon = fake_daemon(tmp_path)
+    _fake_guarded(monkeypatch, [RunResult(1, {}, ["tests/x_test.py::test_a"]), RunResult(0, {}, [])])
+
+    _make_lease(daemon).run(item)
+
+    assert retired == []
+
+
+@pytest.mark.parametrize(
+    ("fresh_workers", "process_level"), [(True, False), (False, True)], ids=["fresh-worker-lease", "process-level-kill"]
+)
+def test_an_original_that_ran_in_a_new_worker_leaves_no_pool_to_retire(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retired: list[str], fresh_workers: bool, process_level: bool
+) -> None:
+    # A fresh-worker lease forks per request, and the original of a process-level kill already ran in a new fork:
+    # no persistent session saw the failure. The results are built per run: the lease edits them in place.
+    killer = "tests/x_test.py::test_a"
+    item = work(0, mutant("src/x.py", 10), covering=(killer,))
+    daemon = fake_daemon(tmp_path)
+    mutant_run = RunResult(1, {}, [], process_failures=[killer]) if process_level else RunResult(1, {}, [killer])
+    calls = _fake_guarded(monkeypatch, [mutant_run, RunResult(1, {}, [killer])])
+
+    _make_lease(daemon, fresh_workers=fresh_workers).run(item)
+
+    assert calls[1]["fresh_workers"] is True
+    assert retired == []
 
 
 def test_reject_unstable_kill_defers_the_mutant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,9 +1,9 @@
 """One worker thread per daemon: take mutants until the queue is empty and decide each verdict exactly.
 
-A candidate kill is accepted only for killers that pass on the immediately restored original (the paired run). A
-warm verdict whose run never entered the mutated code object is deferred to a confirmation in a fresh fork. A hang
-is a kill only when it is causal. Any daemon failure requeues the mutant and ends this worker; a failure to prove
-exactness ends the lane.
+A candidate kill is accepted only for killers that pass on the immediately restored original (the paired run); a
+pytest worker whose paired run fails is replaced before the next mutant. A warm verdict whose run never entered the
+mutated code object is deferred to a confirmation in a fresh fork. A hang is a kill only when it is causal. Any
+daemon failure requeues the mutant and ends this worker; a failure to prove exactness ends the lane.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from balamut.engine.daemon import (
     order_covering,
     process_failure_suffix,
     respawn_daemon,
+    retire_persistent_pool,
     run_subset_guarded,
     write_original_spec,
     write_request_spec,
@@ -470,6 +471,11 @@ class _Lease:
             raise CampaignExactnessError("a paired original rc=1 without a test report or active pytest item evidence")
         unstable = set(original.killed_by)
         confirmed = [killer for killer in sub.killed_by if killer not in unstable]
+        if unstable and not (self.fresh_workers or process_failure):
+            # A killer failed on the original in this worker: the persistent session carries state an earlier
+            # request left behind (a mutant of the harness's own fixture hook breaks pytest's fixture bookkeeping
+            # for good). Every later verdict of this daemon would inherit it, so the next mutant gets a new worker.
+            retire_persistent_pool(daemon)
         if process_failure and original.rc == 0:
             _note(f"process-kill {_label(item)}: {sub.killed_by[0]}, mutant rc=1 without a report, original green")
             return MutantStatus.KILLED, VerdictReason.NONE, False, original_process_failure

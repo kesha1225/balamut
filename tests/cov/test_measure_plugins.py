@@ -1013,6 +1013,9 @@ def test_configure_worker_rejects_a_double_configuration(tmp_path: Path, monkeyp
     coverage_file = tmp_path / "coverage.substrate"
     monkeypatch.setenv(fast_plugin.COVERAGE_FILE_ENV, str(coverage_file))
     monkeypatch.setenv(fast_plugin.COST_FILE_ENV, str(tmp_path / "coverage.costs.json"))
+    # A mutant that skips the check starts the tracer: a real one would outlive this test and trace every later test
+    # of the process (in a balamut worker, the following leases).
+    monkeypatch.setattr(fast_plugin, "Coverage", _FakeCoverage)
     config = cast("Config", SimpleNamespace(stash={fast_plugin._WORKER_STATE: object()}))
 
     with pytest.raises(RuntimeError, match="already configured"):

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import fcntl
 import subprocess
+import uuid
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -199,7 +201,11 @@ def test_build_replaced_before_publication_is_not_published(tmp_path: Path) -> N
     assert not (pool / stale.generation).exists()
 
 
-def test_pool_keeps_only_the_newest_builds(tmp_path: Path) -> None:
+def test_pool_keeps_only_the_newest_builds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Generation names are random. Named in the reverse order of the builds, an eviction by name instead of by last
+    # use keeps the oldest builds on every run.
+    names = iter(uuid.UUID(int=count) for count in range(substrate_pool.POOL_KEEP + 2, 0, -1))
+    monkeypatch.setattr(substrate, "uuid", SimpleNamespace(uuid4=lambda: next(names)))
     pool = tmp_path / "pool"
     generations: list[str] = []
     for index in range(substrate_pool.POOL_KEEP + 2):

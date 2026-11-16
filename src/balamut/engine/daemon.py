@@ -62,6 +62,7 @@ __all__ = [
     "process_failure_suffix",
     "request",
     "respawn_daemon",
+    "retire_persistent_pool",
     "rewrite_warning_filter",
     "run_subset",
     "run_subset_guarded",
@@ -701,29 +702,31 @@ def respawn_daemon(daemon: Daemon) -> None:
     wait_ready(daemon.address, daemon.proc, time.monotonic() + _READY_TIMEOUT)
 
 
-def switch_pool_to_fresh_workers(pool: list[Daemon]) -> None:
-    """End the persistent pytest sessions while keeping every daemon's collection.
+def retire_persistent_pool(daemon: Daemon) -> None:
+    """End the daemon's persistent pytest session while keeping its collection.
 
     An empty fresh-worker request is an acknowledged protocol barrier: pytest-fast destroys the warm pool, runs an
-    empty fork-per-request run and acks. Every later ``fresh_workers`` request gets a new pytest session without
-    another collection."""
+    empty fork-per-request run and acks. A later ``fresh_workers`` request gets a new pytest session without another
+    collection, and a later persistent request forks a new warm pool."""
+    daemon.mutant_file.write_text("", encoding="utf-8")
+    for attempt in (0, 1):
+        try:
+            rc = request(daemon.address, [], {}, [], stop_on_failure=False, fresh_workers=True)
+        except RuntimeError:
+            # The daemon died on a mutant that crashed the process (a code-object corruption segfaults): the
+            # barrier is not a verdict, so a fresh daemon on a new address satisfies it just as well.
+            rc = None
+        if rc == 0:
+            return
+        if attempt == 0:
+            respawn_daemon(daemon)
+    raise RuntimeError(f"pytest-fast did not switch {daemon.address} to fresh-worker mode (rc={rc})")
+
+
+def switch_pool_to_fresh_workers(pool: list[Daemon]) -> None:
+    """End the persistent pytest sessions while keeping every daemon's collection: every later ``fresh_workers``
+    request gets a new pytest session without another collection."""
     if not pool:
         return
-
-    def switch(daemon: Daemon) -> None:
-        daemon.mutant_file.write_text("", encoding="utf-8")
-        for attempt in (0, 1):
-            try:
-                rc = request(daemon.address, [], {}, [], stop_on_failure=False, fresh_workers=True)
-            except RuntimeError:
-                # The daemon died on a mutant that crashed the process (a code-object corruption segfaults): the
-                # switch is a barrier, not a verdict, so a fresh daemon on a new address satisfies it just as well.
-                rc = None
-            if rc == 0:
-                return
-            if attempt == 0:
-                respawn_daemon(daemon)
-        raise RuntimeError(f"pytest-fast did not switch {daemon.address} to fresh-worker mode (rc={rc})")
-
     with ThreadPoolExecutor(max_workers=len(pool), thread_name_prefix="balamut-fresh") as executor:
-        list(executor.map(switch, pool))
+        list(executor.map(retire_persistent_pool, pool))

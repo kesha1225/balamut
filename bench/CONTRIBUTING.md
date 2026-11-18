@@ -9,13 +9,6 @@ results open to correction by every other tool's maintainers.
   disputed result or protocol decision is raised as an issue. Both are answered in public.
 * A corrected result is published as a new results release; the earlier release stays as it was.
 
-## Review before every release
-
-Before a results release is published, each benchmarked tool's maintainers get an issue in their own repository
-with the tool's adapter, its campaign configuration, its card and its rows in the tables, and a deadline of two
-weeks, announced in the issue. Their corrections go into the release; their objections, if not resolved, are
-listed in it.
-
 ## New tools and results
 
 A tool not in the harness is evaluated from its own mutants (`SUBMISSION.md`) and submitted by a pull request with

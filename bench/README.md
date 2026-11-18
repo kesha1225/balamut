@@ -36,7 +36,7 @@ A result names three versions (`pymutbench/__init__.py`): the corpus (`CORPUS`, 
 labels; a bug id `<project>@<commit12>` never changes, and a withdrawn bug is marked, not renumbered), the
 harness (`__version__`) and the results release (`RESULTS`). [`CITATION.cff`](CITATION.cff) cites them;
 [`SUBMISSION.md`](SUBMISSION.md) gives the fields a quoted result must carry; [`CONTRIBUTING.md`](CONTRIBUTING.md)
-the review before a release and the corpus update policy.
+the corrections and the corpus update policy.
 
 ## The numbers from the published data
 

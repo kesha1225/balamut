@@ -958,6 +958,6 @@ mutation-tool benchmarks is not complete.
   writes its card; [`results/cards`](../bench/results/cards) holds the cards of the benchmarked tools.
 * A cheaper run: [`results/lite.json`](../bench/results/lite.json) names the Lite subset (Cost and the Lite subset
   in [`results/tables.md`](../bench/results/tables.md)).
-* Corrections, reviews and the corpus policy: [`bench/CONTRIBUTING.md`](../bench/CONTRIBUTING.md).
+* Corrections and the corpus policy: [`bench/CONTRIBUTING.md`](../bench/CONTRIBUTING.md).
 * Citing: [`bench/CITATION.cff`](../bench/CITATION.cff); a quoted result names the corpus version, the results
   release, the tool and its version, its configuration, the oracle semantics and the measure with its interval.

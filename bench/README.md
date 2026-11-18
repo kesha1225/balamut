@@ -174,7 +174,7 @@ changes. For balamut: move the old wheel out of `.wheels`, name the new one in `
 
 ```console
 $ uv build --wheel -o .wheels ..
-$ python3 -m pymutbench.orchestrate refresh-tool balamut --measured balamut-0.1.4 --unpin balamut pytest-fast
+$ python3 -m pymutbench.orchestrate refresh-tool balamut --measured balamut-0.1.5 --unpin balamut pytest-fast
 $ rm -f $PMB_WORK/out/engine/*/balamut.r*.json $PMB_WORK/out/conformance/*/balamut.r1*.json
 $ python3 -m pymutbench.pipeline generate --tools balamut --force --parallel 3
 $ python3 -m pymutbench.pipeline judge --parallel 3 --jobs 4

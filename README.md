@@ -224,9 +224,9 @@ default source kinds for 11.4%, with a 95% rank interval of 6–9. Judged on the
 24.9% to 61.8% (balamut 40.3%), but 31% to 44% of those detections rest only on lines the fix inserted. Detection
 grows with the number of mutants a tool emits; at fixed budgets the tools are close (ten random mutants contain a
 pre-fix witness with probability 5.3% to 9.4%, balamut's 6.6%), and their order does not repeat between halves
-of the projects. In each tool's own campaign on six projects, balamut's engine agrees with the oracle on all 1,567
+of the projects. In each tool's own campaign on six projects, balamut's engine agrees with the oracle on all 1,892
 comparable verdicts, as do cosmic-ray, universalmutator and pytest-gremlins on theirs, while the oracle kills up
-to 92% (fest) of the survivors other engines report; balamut gave no verdicts on one of the six projects.
+to 92% (fest) of the survivors other engines report.
 
 The benchmark is maintained by balamut's authors; the protocol, every judged mutant and the scripts behind every
 number are in [`bench/`](bench), and any tool's maintainers can correct its adapter or configuration.

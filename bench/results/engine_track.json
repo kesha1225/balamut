@@ -19,10 +19,10 @@
    },
    "control_run": {
     "returncode": 0,
-    "summary": "1407 passed, 4 skipped, 2 xfailed in 4.55s"
+    "summary": "1407 passed, 4 skipped, 2 xfailed in 4.53s"
    },
    "cpu_seconds": [
-    5.85
+    5.82
    ],
    "cpus": [
     [
@@ -32,10 +32,10 @@
    ],
    "mapped": 294,
    "memory": {
-    "cgroup_peak_before_campaign_mib": 286.4,
-    "cgroup_peak_mib": 1128.8,
+    "cgroup_peak_before_campaign_mib": 294.2,
+    "cgroup_peak_mib": 1119.6,
     "cgroup_peak_scope": "container lifetime (control run included)",
-    "largest_process_rss_mib": 268.7
+    "largest_process_rss_mib": 269.2
    },
    "memory_limit_reached": false,
    "native_mutants": 294,
@@ -47,10 +47,10 @@
    "reason": null,
    "result": "ran",
    "stability": [],
-   "tasks_peak": null,
+   "tasks_peak": 53,
    "varied": {},
    "wall_seconds": [
-    13.38
+    13.62
    ]
   },
   "cosmic-ray": {
@@ -551,14 +551,14 @@
    },
    "control_run": {
     "returncode": 0,
-    "summary": "391 passed, 24 subtests passed in 0.19s"
+    "summary": "391 passed, 24 subtests passed in 0.22s"
    },
    "cpu_seconds": [
-    6.36,
-    6.35,
-    6.29,
-    6.29,
-    6.36
+    6.49,
+    6.43,
+    6.42,
+    6.37,
+    6.42
    ],
    "cpus": [
     [
@@ -568,10 +568,10 @@
    ],
    "mapped": 519,
    "memory": {
-    "cgroup_peak_before_campaign_mib": 59.8,
-    "cgroup_peak_mib": 787.0,
+    "cgroup_peak_before_campaign_mib": 64.0,
+    "cgroup_peak_mib": 853.1,
     "cgroup_peak_scope": "container lifetime (control run included)",
-    "largest_process_rss_mib": 92.8
+    "largest_process_rss_mib": 91.7
    },
    "memory_limit_reached": false,
    "native_mutants": 519,
@@ -604,20 +604,22 @@
      "only_second": 0
     },
     {
-     "changed": 0,
+     "changed": 1,
      "common": 518,
      "only_first": 0,
      "only_second": 0
     }
    ],
    "tasks_peak": 54,
-   "varied": {},
+   "varied": {
+    "killed/survived": 1
+   },
    "wall_seconds": [
-    112.32,
-    92.25,
-    92.25,
-    92.31,
-    92.43
+    92.91,
+    93.18,
+    93.07,
+    93.04,
+    93.1
    ]
   },
   "cosmic-ray": {
@@ -1527,10 +1529,10 @@
    },
    "control_run": {
     "returncode": 0,
-    "summary": "\u001b[32m\u001b[32m\u001b[1m744 passed\u001b[0m, \u001b[33m134 skipped\u001b[0m\u001b[32m in 0.73s\u001b[0m\u001b[0m"
+    "summary": "\u001b[32m\u001b[32m\u001b[1m744 passed\u001b[0m, \u001b[33m134 skipped\u001b[0m\u001b[32m in 0.74s\u001b[0m\u001b[0m"
    },
    "cpu_seconds": [
-    3.55
+    3.54
    ],
    "cpus": [
     [
@@ -1540,10 +1542,10 @@
    ],
    "mapped": 322,
    "memory": {
-    "cgroup_peak_before_campaign_mib": 67.8,
-    "cgroup_peak_mib": 484.4,
+    "cgroup_peak_before_campaign_mib": 74.7,
+    "cgroup_peak_mib": 539.3,
     "cgroup_peak_scope": "container lifetime (control run included)",
-    "largest_process_rss_mib": 68.9
+    "largest_process_rss_mib": 68.7
    },
    "memory_limit_reached": false,
    "native_mutants": 322,
@@ -1555,10 +1557,10 @@
    "reason": null,
    "result": "ran",
    "stability": [],
-   "tasks_peak": null,
+   "tasks_peak": 32,
    "varied": {},
    "wall_seconds": [
-    5.34
+    5.45
    ]
   },
   "cosmic-ray": {
@@ -2071,10 +2073,10 @@
    },
    "control_run": {
     "returncode": 0,
-    "summary": "508 passed, 1 skipped in 0.38s"
+    "summary": "508 passed, 1 skipped in 0.36s"
    },
    "cpu_seconds": [
-    5.12
+    5.15
    ],
    "cpus": [
     [
@@ -2084,10 +2086,10 @@
    ],
    "mapped": 392,
    "memory": {
-    "cgroup_peak_before_campaign_mib": 73.0,
-    "cgroup_peak_mib": 846.8,
+    "cgroup_peak_before_campaign_mib": 77.5,
+    "cgroup_peak_mib": 908.9,
     "cgroup_peak_scope": "container lifetime (control run included)",
-    "largest_process_rss_mib": 89.0
+    "largest_process_rss_mib": 90.3
    },
    "memory_limit_reached": false,
    "native_mutants": 392,
@@ -2100,10 +2102,10 @@
    "reason": null,
    "result": "ran",
    "stability": [],
-   "tasks_peak": null,
+   "tasks_peak": 53,
    "varied": {},
    "wall_seconds": [
-    8.43
+    9.08
    ]
   },
   "cosmic-ray": {
@@ -2617,7 +2619,7 @@
     "summary": "537 passed, 2 xfailed, 1 xpassed in 1.18s"
    },
    "cpu_seconds": [
-    10.58
+    9.9
    ],
    "cpus": [
     [
@@ -2627,10 +2629,10 @@
    ],
    "mapped": 238,
    "memory": {
-    "cgroup_peak_before_campaign_mib": 78.6,
-    "cgroup_peak_mib": 1428.0,
+    "cgroup_peak_before_campaign_mib": 84.6,
+    "cgroup_peak_mib": 1491.5,
     "cgroup_peak_scope": "container lifetime (control run included)",
-    "largest_process_rss_mib": 93.2
+    "largest_process_rss_mib": 95.2
    },
    "memory_limit_reached": false,
    "native_mutants": 238,
@@ -2643,10 +2645,10 @@
    "reason": null,
    "result": "ran",
    "stability": [],
-   "tasks_peak": null,
+   "tasks_peak": 92,
    "varied": {},
    "wall_seconds": [
-    320.23
+    344.76
    ]
   },
   "cosmic-ray": {
@@ -3161,16 +3163,29 @@
  "toolz": {
   "balamut": {
    "agreement": {
-    "counts": {},
-    "examples": {},
-    "total": 0
+    "counts": {
+     "agree: killed": 312,
+     "agree: survived": 13,
+     "error": 2,
+     "no coverage, killable": 4,
+     "oracle unresolved": 1
+    },
+    "examples": {
+     "no coverage, killable": [
+      "4ee004a2db1bc1b6dbbe54d8",
+      "7cbf2751ef5e7a9bb3952c20",
+      "994822c23926986f23637ebc",
+      "007f366e303e3bf16e164671"
+     ]
+    },
+    "total": 332
    },
    "control_run": {
     "returncode": 0,
-    "summary": "188 passed in 0.39s"
+    "summary": "188 passed in 0.41s"
    },
    "cpu_seconds": [
-    1.58
+    6.04
    ],
    "cpus": [
     [
@@ -3178,23 +3193,28 @@
      14
     ]
    ],
-   "mapped": 0,
+   "mapped": 332,
    "memory": {
-    "cgroup_peak_before_campaign_mib": 67.9,
-    "cgroup_peak_mib": 248.6,
+    "cgroup_peak_before_campaign_mib": 73.0,
+    "cgroup_peak_mib": 3072.0,
     "cgroup_peak_scope": "container lifetime (control run included)",
-    "largest_process_rss_mib": 57.6
+    "largest_process_rss_mib": 87.2
    },
-   "memory_limit_reached": false,
-   "native_mutants": 0,
-   "native_verdicts": {},
-   "reason": "exit 4: error: building the coverage substrate exited with 1",
-   "result": "no verdicts",
+   "memory_limit_reached": true,
+   "native_mutants": 332,
+   "native_verdicts": {
+    "error": 2,
+    "killed": 313,
+    "no_coverage": 4,
+    "survived": 13
+   },
+   "reason": null,
+   "result": "ran",
    "stability": [],
-   "tasks_peak": null,
+   "tasks_peak": 54,
    "varied": {},
    "wall_seconds": [
-    2.63
+    116.71
    ]
   },
   "cosmic-ray": {
@@ -3349,8 +3369,7 @@
      "agree: killed": 755,
      "agree: survived": 46,
      "missed kill": 9,
-     "oracle unresolved": 1,
-     "timeout": 12
+     "timeout": 13
     },
     "examples": {
      "missed kill": [
@@ -3402,10 +3421,10 @@
   "mutation": {
    "agreement": {
     "counts": {
-     "agree: killed": 1774,
+     "agree: killed": 1775,
      "agree: survived": 105,
      "missed kill": 8,
-     "oracle unresolved": 4,
+     "oracle unresolved": 3,
      "unmapped": 40
     },
     "examples": {
@@ -3459,8 +3478,8 @@
     "counts": {
      "agree: killed": 445,
      "agree: survived": 30,
-     "oracle unresolved": 2,
-     "timeout": 4
+     "oracle unresolved": 1,
+     "timeout": 5
     },
     "examples": {},
     "total": 481
@@ -3502,9 +3521,9 @@
    ]
   },
   "oracle_meta": {
-   "fingerprint": "33a67b4e3a1f1650",
+   "fingerprint": "6dde30737b28f496",
    "flaky": [],
-   "suite_seconds": 0.974,
+   "suite_seconds": 0.962,
    "test_roots": [
     "toolz/tests"
    ],

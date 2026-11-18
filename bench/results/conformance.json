@@ -2,15 +2,14 @@
  "cf_cached": {
   "balamut": {
    "agreement": {
-    "agree: killed": 2,
-    "missed kill": 2
+    "agree: killed": 4
    },
    "outcome": {
-    "survived (expected killed)": 2
+    "correct": 2
    },
    "result": "ran",
    "trap_mutants_generated": 2,
-   "wall_seconds": 3.18
+   "wall_seconds": 3.27
   },
   "cosmic-ray": {
    "agreement": {
@@ -145,7 +144,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 3,
-   "wall_seconds": 3.29
+   "wall_seconds": 3.42
   },
   "cosmic-ray": {
    "agreement": {
@@ -280,7 +279,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 2,
-   "wall_seconds": 3.19
+   "wall_seconds": 3.41
   },
   "cosmic-ray": {
    "agreement": {
@@ -401,7 +400,7 @@
    "outcome": {},
    "result": "ran",
    "trap_mutants_generated": 0,
-   "wall_seconds": 3.16
+   "wall_seconds": 3.19
   },
   "cosmic-ray": {
    "agreement": {
@@ -515,10 +514,15 @@
  },
  "cf_flaky": {
   "balamut": {
-   "outcome": {},
-   "reason": "exit 4: error: building the coverage substrate exited with 1",
-   "result": "no verdicts",
-   "trap_mutants_generated": 0
+   "agreement": {
+    "agree: killed": 3
+   },
+   "outcome": {
+    "correct": 3
+   },
+   "result": "ran",
+   "trap_mutants_generated": 3,
+   "wall_seconds": 3.4
   },
   "cosmic-ray": {
    "agreement": {
@@ -648,7 +652,7 @@
    "outcome": {},
    "result": "ran",
    "trap_mutants_generated": 0,
-   "wall_seconds": 3.17
+   "wall_seconds": 3.2
   },
   "cosmic-ray": {
    "agreement": {
@@ -783,7 +787,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 2,
-   "wall_seconds": 3.08
+   "wall_seconds": 3.23
   },
   "cosmic-ray": {
    "agreement": {
@@ -913,7 +917,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 1,
-   "wall_seconds": 37.23
+   "wall_seconds": 37.29
   },
   "cosmic-ray": {
    "agreement": {
@@ -1043,7 +1047,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 2,
-   "wall_seconds": 3.14
+   "wall_seconds": 3.3
   },
   "cosmic-ray": {
    "agreement": {
@@ -1170,7 +1174,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 2,
-   "wall_seconds": 3.14
+   "wall_seconds": 3.2
   },
   "cosmic-ray": {
    "agreement": {
@@ -1284,10 +1288,15 @@
  },
  "cf_pool": {
   "balamut": {
-   "outcome": {},
-   "reason": "exit 4: error: building the coverage substrate exited with 1",
-   "result": "no verdicts",
-   "trap_mutants_generated": 0
+   "agreement": {
+    "agree: killed": 3
+   },
+   "outcome": {
+    "correct": 3
+   },
+   "result": "ran",
+   "trap_mutants_generated": 3,
+   "wall_seconds": 3.38
   },
   "cosmic-ray": {
    "agreement": {
@@ -1418,7 +1427,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 12,
-   "wall_seconds": 3.14
+   "wall_seconds": 3.25
   },
   "cosmic-ray": {
    "agreement": {
@@ -1555,7 +1564,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 4,
-   "wall_seconds": 3.16
+   "wall_seconds": 3.25
   },
   "cosmic-ray": {
    "agreement": {
@@ -1684,7 +1693,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 1,
-   "wall_seconds": 3.31
+   "wall_seconds": 3.47
   },
   "cosmic-ray": {
    "agreement": {
@@ -1808,7 +1817,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 4,
-   "wall_seconds": 4.19
+   "wall_seconds": 4.28
   },
   "cosmic-ray": {
    "agreement": {
@@ -1944,7 +1953,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 3,
-   "wall_seconds": 3.16
+   "wall_seconds": 3.29
   },
   "cosmic-ray": {
    "agreement": {
@@ -2066,7 +2075,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 2,
-   "wall_seconds": 2.25
+   "wall_seconds": 2.31
   },
   "cosmic-ray": {
    "agreement": {
@@ -2180,7 +2189,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 4,
-   "wall_seconds": 3.15
+   "wall_seconds": 3.33
   },
   "cosmic-ray": {
    "agreement": {
@@ -2309,7 +2318,7 @@
    },
    "result": "ran",
    "trap_mutants_generated": 2,
-   "wall_seconds": 3.21
+   "wall_seconds": 3.33
   },
   "cosmic-ray": {
    "agreement": {

@@ -35,11 +35,11 @@
 <line x1="539.0" y1="143.0" x2="539.0" y2="151.0" stroke="#52514e" stroke-width="1"/>
 <text x="547.0" y="147.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">55%</text>
 <text x="156.0" y="177.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">irradiate</text>
-<path d="M168.00,170.00 H432.68 Q436.68,170.00 436.68,174.00 V180.00 Q436.68,184.00 432.68,184.00 H168.00 Z" fill="#a8a69e"><title>irradiate: 46% (95% CI 37–54%)</title></path>
-<line x1="385.9" y1="177.0" x2="487.0" y2="177.0" stroke="#52514e" stroke-width="1"><title>irradiate: 46% (95% CI 37–54%)</title></line>
-<line x1="385.9" y1="173.0" x2="385.9" y2="181.0" stroke="#52514e" stroke-width="1"/>
-<line x1="487.0" y1="173.0" x2="487.0" y2="181.0" stroke="#52514e" stroke-width="1"/>
-<text x="495.0" y="177.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">46%</text>
+<path d="M168.00,170.00 H439.94 Q443.94,170.00 443.94,174.00 V180.00 Q443.94,184.00 439.94,184.00 H168.00 Z" fill="#a8a69e"><title>irradiate: 47% (95% CI 38–56%)</title></path>
+<line x1="390.8" y1="177.0" x2="497.4" y2="177.0" stroke="#52514e" stroke-width="1"><title>irradiate: 47% (95% CI 38–56%)</title></line>
+<line x1="390.8" y1="173.0" x2="390.8" y2="181.0" stroke="#52514e" stroke-width="1"/>
+<line x1="497.4" y1="173.0" x2="497.4" y2="181.0" stroke="#52514e" stroke-width="1"/>
+<text x="505.4" y="177.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">47%</text>
 <text x="156.0" y="207.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">deployproof</text>
 <path d="M168.00,200.00 H423.60 Q427.60,200.00 427.60,204.00 V210.00 Q427.60,214.00 423.60,214.00 H168.00 Z" fill="#a8a69e"><title>deployproof: 44% (95% CI 37–51%)</title></path>
 <line x1="384.8" y1="207.0" x2="471.5" y2="207.0" stroke="#52514e" stroke-width="1"><title>deployproof: 44% (95% CI 37–51%)</title></line>

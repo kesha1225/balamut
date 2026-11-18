@@ -26,11 +26,11 @@
 <rect x="691.17" y="133.00" width="0.50" height="16" rx="3" fill="#6b6a64"><title>universalmutator — screened out (invalid, equivalent, no-op) or unresolved: 74 (0.2%)</title></rect>
 <text x="698.0" y="141.0" fill="#898781" font-size="11" font-weight="400" text-anchor="start" dominant-baseline="middle">46,564</text>
 <text x="156.0" y="171.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">irradiate</text>
-<rect x="168.00" y="163.00" width="426.74" height="16" rx="3" fill="#45443f"><title>irradiate — killed: 30164 (81.8%)</title></rect>
-<rect x="596.74" y="163.00" width="13.17" height="16" rx="3" fill="#d95926"><title>irradiate — survived: witness: 1072 (2.9%)</title></rect>
-<rect x="611.91" y="163.00" width="77.17" height="16" rx="3" fill="#199e70"><title>irradiate — survived: other: 5596 (15.2%)</title></rect>
-<rect x="691.08" y="163.00" width="0.50" height="16" rx="3" fill="#6b6a64"><title>irradiate — screened out (invalid, equivalent, no-op) or unresolved: 65 (0.2%)</title></rect>
-<text x="698.0" y="171.0" fill="#898781" font-size="11" font-weight="400" text-anchor="start" dominant-baseline="middle">36,897</text>
+<rect x="168.00" y="163.00" width="428.05" height="16" rx="3" fill="#45443f"><title>irradiate — killed: 30847 (82.0%)</title></rect>
+<rect x="598.05" y="163.00" width="13.15" height="16" rx="3" fill="#d95926"><title>irradiate — survived: witness: 1092 (2.9%)</title></rect>
+<rect x="613.21" y="163.00" width="75.83" height="16" rx="3" fill="#199e70"><title>irradiate — survived: other: 5609 (14.9%)</title></rect>
+<rect x="691.04" y="163.00" width="0.50" height="16" rx="3" fill="#6b6a64"><title>irradiate — screened out (invalid, equivalent, no-op) or unresolved: 69 (0.2%)</title></rect>
+<text x="698.0" y="171.0" fill="#898781" font-size="11" font-weight="400" text-anchor="start" dominant-baseline="middle">37,617</text>
 <text x="156.0" y="201.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">cosmic-ray</text>
 <rect x="168.00" y="193.00" width="399.04" height="16" rx="3" fill="#45443f"><title>cosmic-ray — killed: 27203 (76.4%)</title></rect>
 <rect x="569.04" y="193.00" width="15.63" height="16" rx="3" fill="#d95926"><title>cosmic-ray — survived: witness: 1202 (3.4%)</title></rect>

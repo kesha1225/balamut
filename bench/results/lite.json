@@ -114,8 +114,8 @@
  ],
  "bugs": 111,
  "draws": 1000,
- "max_difference": 0.035343035343035345,
- "max_difference_median": 0.03864171864171864,
+ "max_difference": 0.033347193347193355,
+ "max_difference_median": 0.03872487872487873,
  "max_difference_p95": 0.06566874566874567,
  "projects_left_out": [
   "cattrs",
@@ -128,7 +128,7 @@
   "suite_limit_seconds": 60.0
  },
  "spearman": 0.9816617042638283,
- "spearman_median": 0.9379533404160171,
- "spearman_p5": 0.8256967605957434,
- "worker_hours": 73.89135
+ "spearman_median": 0.938217559443647,
+ "spearman_p5": 0.8329541259450916,
+ "worker_hours": 74.03913611111112
 }

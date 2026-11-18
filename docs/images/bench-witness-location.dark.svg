@@ -38,10 +38,10 @@
 <rect x="386.83" y="163.00" width="138.54" height="16" rx="3" fill="#6b6a64"><title>poodle — only lines the fix inserted: 22%</title></rect>
 <text x="533.4" y="171.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">55%</text>
 <text x="156.0" y="201.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">irradiate</text>
-<rect x="168.00" y="193.00" width="80.31" height="16" rx="3" fill="#3987e5"><title>irradiate — code the fix did not touch: 12%</title></rect>
-<rect x="250.31" y="193.00" width="102.40" height="16" rx="3" fill="#d95926"><title>irradiate — lines the fix rewrote: 16%</title></rect>
-<rect x="354.71" y="193.00" width="110.43" height="16" rx="3" fill="#6b6a64"><title>irradiate — only lines the fix inserted: 17%</title></rect>
-<text x="473.1" y="201.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">46%</text>
+<rect x="168.00" y="193.00" width="84.32" height="16" rx="3" fill="#3987e5"><title>irradiate — code the fix did not touch: 13%</title></rect>
+<rect x="254.32" y="193.00" width="104.41" height="16" rx="3" fill="#d95926"><title>irradiate — lines the fix rewrote: 16%</title></rect>
+<rect x="360.73" y="193.00" width="112.44" height="16" rx="3" fill="#6b6a64"><title>irradiate — only lines the fix inserted: 18%</title></rect>
+<text x="481.2" y="201.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">47%</text>
 <text x="156.0" y="231.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">deployproof</text>
 <rect x="168.00" y="223.00" width="76.29" height="16" rx="3" fill="#3987e5"><title>deployproof — code the fix did not touch: 12%</title></rect>
 <rect x="246.29" y="223.00" width="90.35" height="16" rx="3" fill="#d95926"><title>deployproof — lines the fix rewrote: 14%</title></rect>

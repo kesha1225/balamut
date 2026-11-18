@@ -37,11 +37,11 @@
 <line x1="180.5" y1="173.0" x2="180.5" y2="181.0" stroke="#c3c2b7" stroke-width="1"/>
 <text x="188.5" y="177.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">38 s</text>
 <text x="156.0" y="207.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">balamut</text>
-<path d="M168.00,200.00 H193.05 Q197.05,200.00 197.05,204.00 V210.00 Q197.05,214.00 193.05,214.00 H168.00 Z" fill="#6b6a64"><title>balamut: 92.3 s (92.25–112.32)</title></path>
-<line x1="197.0" y1="207.0" x2="203.3" y2="207.0" stroke="#c3c2b7" stroke-width="1"><title>balamut: 92.3 s (92.25–112.32)</title></line>
-<line x1="197.0" y1="203.0" x2="197.0" y2="211.0" stroke="#c3c2b7" stroke-width="1"/>
-<line x1="203.3" y1="203.0" x2="203.3" y2="211.0" stroke="#c3c2b7" stroke-width="1"/>
-<text x="211.3" y="207.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">92.3 s</text>
+<path d="M168.00,200.00 H193.29 Q197.29,200.00 197.29,204.00 V210.00 Q197.29,214.00 193.29,214.00 H168.00 Z" fill="#6b6a64"><title>balamut: 93.1 s (92.91–93.18)</title></path>
+<line x1="197.2" y1="207.0" x2="197.3" y2="207.0" stroke="#c3c2b7" stroke-width="1"><title>balamut: 93.1 s (92.91–93.18)</title></line>
+<line x1="197.2" y1="203.0" x2="197.2" y2="211.0" stroke="#c3c2b7" stroke-width="1"/>
+<line x1="197.3" y1="203.0" x2="197.3" y2="211.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="205.3" y="207.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="start" dominant-baseline="middle">93.1 s</text>
 <text x="156.0" y="237.0" fill="#c3c2b7" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">deployproof</text>
 <path d="M168.00,230.00 H206.21 Q210.21,230.00 210.21,234.00 V240.00 Q210.21,244.00 206.21,244.00 H168.00 Z" fill="#6b6a64"><title>deployproof: 134 s (133.60–134.16)</title></path>
 <line x1="210.0" y1="237.0" x2="210.2" y2="237.0" stroke="#c3c2b7" stroke-width="1"><title>deployproof: 134 s (133.60–134.16)</title></line>

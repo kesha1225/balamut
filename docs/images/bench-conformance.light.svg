@@ -33,16 +33,16 @@
 <text x="675.5" y="140" fill="#52514e" font-size="11" text-anchor="start" transform="rotate(-40 675.5 140)">tabs</text>
 <text x="704.5" y="140" fill="#52514e" font-size="11" text-anchor="start" transform="rotate(-40 704.5 140)">unicode</text>
 <text x="156.0" y="165.0" fill="#52514e" font-size="12" font-weight="400" text-anchor="end" dominant-baseline="middle">balamut</text>
-<rect x="169" y="151" width="27" height="28" rx="3" fill="#eb6834" stroke="#e1e0d9"><title>balamut — cached: wrong verdict (survived (expected killed): 2)</title></rect>
-<text x="182.5" y="165.0" fill="#0b0b0b" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">✗</text>
+<rect x="169" y="151" width="27" height="28" rx="3" fill="#d7d5cd" stroke="#e1e0d9"><title>balamut — cached: as expected (correct: 2)</title></rect>
+<text x="182.5" y="165.0" fill="#0b0b0b" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">✓</text>
 <rect x="198" y="151" width="27" height="28" rx="3" fill="#d7d5cd" stroke="#e1e0d9"><title>balamut — cov_config: as expected (correct: 3)</title></rect>
 <text x="211.5" y="165.0" fill="#0b0b0b" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">✓</text>
 <rect x="227" y="151" width="27" height="28" rx="3" fill="#eb6834" stroke="#e1e0d9"><title>balamut — decorator_closure: wrong verdict (error (expected killed): 2)</title></rect>
 <text x="240.5" y="165.0" fill="#0b0b0b" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">✗</text>
 <rect x="256" y="151" width="27" height="28" rx="3" fill="#fcfcfb" stroke="#e1e0d9"><title>balamut — default_arg: no trap mutant</title></rect>
 <text x="269.5" y="165.0" fill="#898781" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">–</text>
-<rect x="285" y="151" width="27" height="28" rx="3" fill="#fcfcfb" stroke="#e1e0d9"><title>balamut — flaky: no result</title></rect>
-<text x="298.5" y="165.0" fill="#898781" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">!</text>
+<rect x="285" y="151" width="27" height="28" rx="3" fill="#d7d5cd" stroke="#e1e0d9"><title>balamut — flaky: as expected (correct: 3)</title></rect>
+<text x="298.5" y="165.0" fill="#0b0b0b" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">✓</text>
 <rect x="314" y="151" width="27" height="28" rx="3" fill="#fcfcfb" stroke="#e1e0d9"><title>balamut — hard_exit: no trap mutant</title></rect>
 <text x="327.5" y="165.0" fill="#898781" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">–</text>
 <rect x="343" y="151" width="27" height="28" rx="3" fill="#eb6834" stroke="#e1e0d9"><title>balamut — import_time: wrong verdict (no_coverage (expected killed): 2)</title></rect>
@@ -53,8 +53,8 @@
 <text x="414.5" y="165.0" fill="#0b0b0b" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">✓</text>
 <rect x="430" y="151" width="27" height="28" rx="3" fill="#d7d5cd" stroke="#e1e0d9"><title>balamut — nested_class: as expected (correct: 2)</title></rect>
 <text x="443.5" y="165.0" fill="#0b0b0b" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">✓</text>
-<rect x="459" y="151" width="27" height="28" rx="3" fill="#fcfcfb" stroke="#e1e0d9"><title>balamut — pool: no result</title></rect>
-<text x="472.5" y="165.0" fill="#898781" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">!</text>
+<rect x="459" y="151" width="27" height="28" rx="3" fill="#d7d5cd" stroke="#e1e0d9"><title>balamut — pool: as expected (correct: 3)</title></rect>
+<text x="472.5" y="165.0" fill="#0b0b0b" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">✓</text>
 <rect x="488" y="151" width="27" height="28" rx="3" fill="#eb6834" stroke="#e1e0d9"><title>balamut — property_setter: wrong verdict (correct: 6, error (expected killed): 5, error (expected survived): 1)</title></rect>
 <text x="501.5" y="165.0" fill="#0b0b0b" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">✗</text>
 <rect x="517" y="151" width="27" height="28" rx="3" fill="#d7d5cd" stroke="#e1e0d9"><title>balamut — relative_import: as expected (correct: 4)</title></rect>

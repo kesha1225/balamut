@@ -200,7 +200,7 @@ def test_a_reload_in_one_lease_leaves_the_next_lease_the_imported_definitions(tm
     rows = _rows(_mutate(root, None, "--daemons", "1"))
 
     triple = [row for row in rows if row["lineno"] == 6]
-    assert len(triple) == 3
+    assert len(triple) == 4  # x / 3, x * 4, x * 2, return None
     assert {str(row["status"]) for row in triple} == {"killed"}
     assert {str(row["status"]) for row in rows if row["lineno"] == 2} == {"survived"}  # the reloads did run
 

@@ -521,6 +521,16 @@ init(
         # --- src/balamut/runtime/plugin.py
         Accept(
             reason=(
+                "ast.literal_eval(None) raises the ValueError the next lines catch, so a spec without a literal is"
+                " unsupported with or without the guard; the guard only keeps the call typed"
+            ),
+            path="src/balamut/runtime/plugin.py",
+            function="_defaults_edit",
+            operator="lang:condition:False",
+            original="literal is None",
+        ),
+        Accept(
+            reason=(
                 "co_positions() reports a line and an end line together or neither (the compiler rejects a node with"
                 " only"
                 " one of them), so `or` and `and` skip the same instructions"
@@ -743,6 +753,16 @@ init(
         ),
         Accept(
             reason=(
+                "a parsed integer literal is never negative (a minus sign parses as a UnaryOp), so == 0 and <= 0 hold"
+                " for the same literals"
+            ),
+            path="src/balamut/operators/kit.py",
+            function="_is_zero",
+            operator="lang:compare:Eq->LtE",
+            original="node.value == 0",
+        ),
+        Accept(
+            reason=(
                 "a None parent has no suites: _suite_candidates returns [] for it and suite_of falls through to its"
                 " final return None"
             ),
@@ -750,16 +770,6 @@ init(
             function="EnumContext.suite_of",
             operator="lang:statement:delete",
             original="return None",
-        ),
-        Accept(
-            reason=(
-                "nothing in the defaults phase reads ctx.node: the matcher, the finders and emit all take the node"
-                " as an argument"
-            ),
-            path="src/balamut/operators/src.py",
-            function="DefaultsFact.enumerate",
-            operator="lang:statement:delete",
-            original="ctx.node = default",
         ),
         Accept(
             reason=(

@@ -163,6 +163,93 @@ def test_apply_mutation_defaults_replaces_positional_default() -> None:
     assert f() == 2
 
 
+def test_apply_mutation_defaults_replaces_a_keyword_only_default_and_reverts() -> None:
+    module = _module("m_apply_kwdef", "def f(*, flag=False, n=1):\n    return flag, n\n")
+    spec: MutantSpec = {
+        "module": "m_apply_kwdef",
+        "qualname": "f",
+        "mutated_source": "",
+        "kind": "src",
+        "mechanism": "defaults",
+        "default_name": "flag",
+        "default_literal": "True",
+    }
+    outcome, restore = apply_mutation_reversible(module, spec)
+    assert outcome is ApplyOutcome.APPLIED
+    f = resolve_function(module, "f")
+    assert f is not None
+    assert f() == (True, 1)  # the sibling keyword default keeps its evaluated value
+    assert restore is not None
+    restore()
+    assert f() == (False, 1)
+
+
+def test_apply_mutation_defaults_unknown_keyword_is_unsupported() -> None:
+    module = _module("m_apply_kwdef2", "def f(*, flag=False):\n    return flag\n")
+    base: MutantSpec = {
+        "module": "m_apply_kwdef2",
+        "qualname": "f",
+        "mutated_source": "",
+        "kind": "src",
+        "mechanism": "defaults",
+        "default_name": "other",
+        "default_literal": "True",
+    }
+    assert apply_mutation(module, base) is ApplyOutcome.UNSUPPORTED
+    plain = _module("m_apply_kwdef3", "def f(flag=False):\n    return flag\n")
+    without_kwdefaults: MutantSpec = {**base, "module": "m_apply_kwdef3", "default_name": "flag"}
+    assert apply_mutation(plain, without_kwdefaults) is ApplyOutcome.UNSUPPORTED
+
+
+def test_apply_mutation_defaults_of_a_function_without_defaults_is_unsupported() -> None:
+    module = _module("m_apply_nodef", "def f(x):\n    return x\n")
+    spec: MutantSpec = {
+        "module": "m_apply_nodef",
+        "qualname": "f",
+        "mutated_source": "",
+        "kind": "src",
+        "mechanism": "defaults",
+        "default_index": 0,
+        "default_literal": "2",
+    }
+    assert apply_mutation(module, spec) is ApplyOutcome.UNSUPPORTED
+
+
+def test_defaults_edit_needs_a_slot() -> None:
+    spec: MutantSpec = {
+        "module": "m",
+        "qualname": "f",
+        "mutated_source": "",
+        "kind": "src",
+        "mechanism": "defaults",
+        "default_literal": "2",
+    }
+    assert plugin._defaults_edit(spec) is None
+    assert plugin._defaults_edit({**spec, "default_name": "flag"}) is not None
+
+
+def test_apply_mutation_defaults_without_a_slot_or_literal_is_unsupported() -> None:
+    module = _module("m_apply_def4", "def f(x=1):\n    return x\n")
+    no_slot: MutantSpec = {
+        "module": "m_apply_def4",
+        "qualname": "f",
+        "mutated_source": "",
+        "kind": "src",
+        "mechanism": "defaults",
+        "default_literal": "2",
+    }
+    assert apply_mutation(module, no_slot) is ApplyOutcome.UNSUPPORTED
+    no_literal: MutantSpec = {
+        "module": "m_apply_def4",
+        "qualname": "f",
+        "mutated_source": "",
+        "kind": "src",
+        "mechanism": "defaults",
+        "default_index": 0,
+    }
+    assert apply_mutation(module, no_literal) is ApplyOutcome.UNSUPPORTED
+
+
 def test_apply_mutation_defaults_out_of_range_is_unsupported() -> None:
     module = _module("m_apply_def2", "def f(x=1):\n    return x\n")
     spec: MutantSpec = {

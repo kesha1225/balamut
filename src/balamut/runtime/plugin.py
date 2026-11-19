@@ -93,6 +93,7 @@ class MutantSpec(TypedDict):
     self_covered: NotRequired[bool]  # the mutant mutates its own covering test: patch the collected module
     mechanism: NotRequired[str]  # ApplyMechanism value; absent means CODE
     default_index: NotRequired[int]  # DEFAULTS: the slot in __defaults__
+    default_name: NotRequired[str]  # DEFAULTS: the key in __kwdefaults__ (a keyword-only default)
     default_literal: NotRequired[str]  # DEFAULTS: text of the new value (ast.literal_eval)
     # Bytecode edit (const/binop/compare): the site position and the structured edit. Absent: compile right away.
     bc_kind: NotRequired[str]
@@ -112,6 +113,7 @@ class MutantSpec(TypedDict):
 _REQUIRED_SPEC_KEYS = ("module", "qualname", "mutated_source", "kind")
 _OPTIONAL_STR_KEYS = (
     "mechanism",
+    "default_name",
     "default_literal",
     "request_token",
     "touch_path",
@@ -300,10 +302,10 @@ def prepare_mutation(
     """Resolve the mutant's target and build its edit once; the returned ``apply`` puts the edit into the process
     and returns its revert. None means UNSUPPORTED: no definition, no edit, or an edit that does not fit.
 
-    CODE swaps ``__code__``; DEFAULTS replaces ``__defaults__``. ``apply`` arms the touch marker before it edits
-    anything, so the marker is armed by unmutated code even when the mutant edits this module. ``follow`` registers
-    the callback a reload of a module calls during the item: a reload of ``module`` binds a new definition, which
-    takes the edit at once and again at every later ``apply``."""
+    CODE swaps ``__code__``; DEFAULTS replaces ``__defaults__`` or ``__kwdefaults__``. ``apply`` arms the touch
+    marker before it edits anything, so the marker is armed by unmutated code even when the mutant edits this
+    module. ``follow`` registers the callback a reload of a module calls during the item: a reload of ``module``
+    binds a new definition, which takes the edit at once and again at every later ``apply``."""
     qualname = spec["qualname"]
     func, cache_clear = resolve_with_cache_clear(module, qualname)
     if func is None:
@@ -395,22 +397,52 @@ def _code_edit(func: FunctionType, spec: MutantSpec) -> tuple[_Put, _Watched] | 
 
 
 def _defaults_edit(spec: MutantSpec) -> tuple[_Put, _Watched] | None:
-    """One positional default replaced; the touch marker watches the function's own code.
+    """One default replaced, positional (``default_index``) or keyword-only (``default_name``); the touch marker
+    watches the function's own code.
 
-    Sibling defaults are taken from the already evaluated tuple (never re-evaluated), so nothing runs as a side
-    effect."""
+    Sibling defaults are taken from the already evaluated tuple or mapping (never re-evaluated), so nothing runs as
+    a side effect."""
     index = spec.get("default_index")
+    name = spec.get("default_name")
     literal = spec.get("default_literal")
-    if index is None or literal is None:
+    if literal is None:
         return None
     try:
         value = ast.literal_eval(literal)
     except ValueError, SyntaxError:
         return None
+    if index is not None:
+        put = _positional_default_put(index, value)
+    elif name is not None:
+        put = _keyword_default_put(name, value)
+    else:
+        return None
 
+    def watched(targets: tuple[FunctionType, ...]) -> tuple[CodeType, ...]:
+        return tuple(target.__code__ for target in targets)
+
+    return put, watched
+
+
+def _keyword_default_put(name: str, value: object) -> _Put:
+    def put(target: FunctionType) -> Revert | None:
+        original = target.__kwdefaults__
+        if original is None or name not in original:
+            return None
+        target.__kwdefaults__ = {**original, name: value}
+
+        def undo() -> None:
+            target.__kwdefaults__ = original
+
+        return undo
+
+    return put
+
+
+def _positional_default_put(index: int, value: object) -> _Put:
     def put(target: FunctionType) -> Revert | None:
         original = target.__defaults__
-        current = list(original or ())
+        current: list[object] = list(original or ())
         if not 0 <= index < len(current):
             return None
         current[index] = value
@@ -421,10 +453,7 @@ def _defaults_edit(spec: MutantSpec) -> tuple[_Put, _Watched] | None:
 
         return undo
 
-    def watched(targets: tuple[FunctionType, ...]) -> tuple[CodeType, ...]:
-        return tuple(target.__code__ for target in targets)
-
-    return put, watched
+    return put
 
 
 def _mark_unsupported(spec_path: str) -> None:

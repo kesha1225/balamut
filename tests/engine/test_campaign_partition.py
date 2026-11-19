@@ -311,7 +311,7 @@ def test_module_level_oracle_mutants_are_unsupported(tmp_path: Path, monkeypatch
     # A module-level oracle has no enclosing function to patch: it is unsupported before any collect-file lookup.
     source = "A = 30\nB = 40\n"
     oracles = _oracles(tmp_path, monkeypatch, "tests/x_test.py", source, predicate="lang:const:num:")
-    assert len(oracles) == 2
+    assert len(oracles) == 4  # each literal shifted up and down
     store = Store(tmp_path / "cache.sqlite")
     try:
         items, results, _hits = partition.partition(
@@ -327,7 +327,7 @@ def test_module_level_oracle_mutants_are_unsupported(tmp_path: Path, monkeypatch
     finally:
         store.close()
     assert items == []
-    assert len(results) == 2
+    assert len(results) == 4
     assert all(result.status is MutantStatus.UNSUPPORTED for result in results.values())
     assert all(result.covering == 0 for result in results.values())
 

@@ -743,9 +743,35 @@ def _namespace(namespace: Library | str) -> str:
     return namespace.value if isinstance(namespace, Library) else namespace
 
 
+def _is_size(node: ast.expr) -> bool:
+    """A call whose result is never negative: ``len(...)`` or ``abs(...)``."""
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"len", "abs"}
+
+
+def _is_zero(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and type(node.value) is int and node.value == 0
+
+
+# Swaps that keep the value of a comparison between a size and zero (``len(x) == 0`` is ``len(x) <= 0``), keyed by
+# the side the size stands on; the equivalent-mutant heuristic of Petrović et al. (TSE 2021) for collection sizes.
+_SIZE_EQUIVALENT: dict[str, frozenset[tuple[type[ast.cmpop], type[ast.cmpop]]]] = {
+    "left": frozenset({(ast.Eq, ast.LtE), (ast.LtE, ast.Eq), (ast.NotEq, ast.Gt), (ast.Gt, ast.NotEq)}),
+    "right": frozenset({(ast.Eq, ast.GtE), (ast.GtE, ast.Eq), (ast.NotEq, ast.Lt), (ast.Lt, ast.NotEq)}),
+}
+
+
+def _size_equivalent(left: ast.expr, right: ast.expr, swap: tuple[type[ast.cmpop], type[ast.cmpop]]) -> bool:
+    if _is_size(left) and _is_zero(right):
+        return swap in _SIZE_EQUIVALENT["left"]
+    if _is_zero(left) and _is_size(right):
+        return swap in _SIZE_EQUIVALENT["right"]
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class CompareSwapSite(SiteFinder):
-    """Each swappable op of a compare chain, rebuilt with the table's counterpart."""
+    """Each swappable op of a compare chain, rebuilt with the table's counterpart; a swap that cannot change a
+    comparison of a size with zero is skipped."""
 
     swaps: tuple[tuple[type[ast.cmpop], type[ast.cmpop]], ...]
     namespace: Library | str = Library.LANG
@@ -755,9 +781,10 @@ class CompareSwapSite(SiteFinder):
     ) -> Iterator[tuple[ast.expr | ast.stmt, str, tuple[int, int] | None, str | None, BcEdit | None]]:
         if not isinstance(node, ast.Compare):
             return
+        operands = [node.left, *node.comparators]
         for index, op in enumerate(node.ops):
             for from_, to in self.swaps:
-                if type(op) is from_:
+                if type(op) is from_ and not _size_equivalent(operands[index], operands[index + 1], (from_, to)):
                     mutated = copy.deepcopy(node)
                     mutated.ops[index] = to()
                     bc = BcEdit(BcEditKind.COMPARE, from_.__name__, to.__name__, "")
@@ -989,6 +1016,124 @@ class DropEachKeyword(SiteFinder):
             next_start = _next_argument_start(node, index, ctx)
             if next_start is not None:
                 yield keyword.value, "", (name_start, next_start), None, None
+
+
+@dataclass(frozen=True, slots=True)
+class DropEachMappingSplat(SiteFinder):
+    """Every ``**mapping`` argument of the call, dropped with one separator (``f(x, **kw)`` -> ``f(x)``,
+    ``f(**kw)`` -> ``f()``): the forwarded options a wrapper loses."""
+
+    def find(
+        self, node: ast.AST, ctx: EnumContext
+    ) -> Iterator[tuple[ast.expr | ast.stmt, str, tuple[int, int] | None, str | None, BcEdit | None]]:
+        if not isinstance(node, ast.Call):
+            return
+        for index, keyword in enumerate(node.keywords):
+            if keyword.arg is not None:
+                continue
+            value_span = node_byte_span(keyword.value, ctx.line_starts)
+            if value_span is None:
+                continue
+            splat_start = ctx.line_starts[keyword.lineno - 1] + keyword.col_offset
+            if _previous_argument_end(node, index, ctx) is not None:
+                start = _separator_before(ctx, splat_start)
+                if start is not None:
+                    yield keyword.value, "", (start, value_span[1]), None, None
+                continue
+            next_start = _next_argument_start(node, index, ctx)
+            yield keyword.value, "", (splat_start, next_start if next_start is not None else value_span[1]), None, None
+
+
+@dataclass(frozen=True, slots=True)
+class KeepOperandSite(SiteFinder):
+    """AOD (Laurent et al., ICST 2017; Petrović et al., TSE 2021): the binary operation becomes each of its
+    operands in turn — the term a formula lost. Only an operation of two non-literal operands qualifies: dropping a
+    literal operand repeats a constant shift, and keeping one is no fault."""
+
+    namespace: Library | str = Library.LANG
+
+    def find(
+        self, node: ast.AST, ctx: EnumContext
+    ) -> Iterator[tuple[ast.expr | ast.stmt, str, tuple[int, int] | None, str | None, BcEdit | None]]:
+        if not isinstance(node, ast.BinOp):
+            return
+        if isinstance(node.left, ast.Constant) or isinstance(node.right, ast.Constant):
+            return
+        op = type(node.op).__name__
+        for side, operand in (("lhs", node.left), ("rhs", node.right)):
+            name = operator_name(_namespace(self.namespace), "binop", f"{op}->{side}")
+            yield node, _atomic(ast.unparse(operand), operand), None, name, None
+
+
+@dataclass(frozen=True, slots=True)
+class DropBoolOperandSite(SiteFinder):
+    """COR ``lhs``/``rhs`` (Just et al., STVR 2014) and PyTation's RemExpCond: one operand of an ``and``/``or``
+    chain dropped, so the condition misses a clause. ``ast.unparse`` parenthesizes a lone operand whose precedence is
+    lower than a boolean operand's (a conditional expression, a lambda, an assignment expression)."""
+
+    namespace: Library | str = Library.LANG
+
+    def find(
+        self, node: ast.AST, ctx: EnumContext
+    ) -> Iterator[tuple[ast.expr | ast.stmt, str, tuple[int, int] | None, str | None, BcEdit | None]]:
+        if not isinstance(node, ast.BoolOp):
+            return
+        name = operator_name(_namespace(self.namespace), "boolop", f"{type(node.op).__name__}-drop")
+        for index in range(len(node.values)):
+            rest = [value for position, value in enumerate(node.values) if position != index]
+            yield node, ast.unparse(ast.BoolOp(op=node.op, values=rest)), None, name, None
+
+
+@dataclass(frozen=True, slots=True)
+class StringLiteralSite(SiteFinder):
+    """The string or bytes literal changed: a filled one wrapped in ``XX`` (as mutmut and poodle do), an empty
+    one filled with ``XX``. The wrap keeps a filled string truthy and its text findable, so only a test that checks
+    the exact text kills it."""
+
+    namespace: Library | str = Library.LANG
+
+    def find(
+        self, node: ast.AST, ctx: EnumContext
+    ) -> Iterator[tuple[ast.expr | ast.stmt, str, tuple[int, int] | None, str | None, BcEdit | None]]:
+        if not isinstance(node, ast.Constant):
+            return
+        value = node.value
+        if isinstance(value, str):
+            text, kind = repr(f"XX{value}XX" if value else "XX"), "str"
+        elif isinstance(value, bytes):
+            text, kind = repr(b"XX" + value + b"XX" if value else b"XX"), "bytes"
+        else:
+            return
+        name = operator_name(_namespace(self.namespace), "const", f"{kind}:{'wrap' if value else 'fill'}")
+        yield node, text, None, name, BcEdit(BcEditKind.CONST, "", "", text)
+
+
+@dataclass(frozen=True, slots=True)
+class SignDropSite(SiteFinder):
+    """``-x`` becomes ``x`` (UOI, Laurent et al., ICST 2017): a lost sign, a negative index turned positive. Only the
+    sign is spliced out: the operand of a negation is a power or another unary expression, which can stand wherever
+    the negation stood, so the grouping never changes."""
+
+    def find(
+        self, node: ast.AST, ctx: EnumContext
+    ) -> Iterator[tuple[ast.expr | ast.stmt, str, tuple[int, int] | None, str | None, BcEdit | None]]:
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            sign = ctx.line_starts[node.lineno - 1] + node.col_offset
+            yield node, "", (sign, sign + 1), None, None
+
+
+@dataclass(frozen=True, slots=True)
+class AugAssignToAssignSite(SiteFinder):
+    """``x op= y`` becomes ``x = y``: the accumulation lost (ASRS, Gay and Salahirad, ICST 2023)."""
+
+    namespace: Library | str = Library.LANG
+
+    def find(
+        self, node: ast.AST, ctx: EnumContext
+    ) -> Iterator[tuple[ast.expr | ast.stmt, str, tuple[int, int] | None, str | None, BcEdit | None]]:
+        if isinstance(node, ast.AugAssign):
+            name = operator_name(_namespace(self.namespace), "augassign", f"{type(node.op).__name__}->Assign")
+            yield node, f"{ast.unparse(node.target)} = {ast.unparse(node.value)}", None, name, None
 
 
 # --- Facts -------------------------------------------------------------------

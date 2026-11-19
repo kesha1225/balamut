@@ -107,6 +107,29 @@ def test_identify_default_mutant_sets_defaults_mechanism_and_slot() -> None:
     assert spec["qualname"] == "f"
 
 
+def test_identify_keyword_only_default_mutant_names_its_kwdefaults_key() -> None:
+    src = "def f(a, *, flag=False):\n    return a\n"
+    mutant = next(m for m in enumerate_mutants("t.py", src) if m.default_name is not None)
+    found = identify.identify(mutant, src, module="t")
+    assert found is not None
+    spec = found["spec"]
+    assert spec.get("mechanism") == "defaults"
+    assert spec.get("default_name") == "flag"
+    assert spec.get("default_literal") == "True"
+    assert "default_index" not in spec
+
+
+def test_identify_defaults_mutant_without_a_slot_records_no_default() -> None:
+    src = "def f(a, *, flag=False):\n    return a\n"
+    mutant = next(m for m in enumerate_mutants("t.py", src) if m.default_name is not None)
+    found = identify.identify(replace(mutant, default_name=None), src, module="t")
+    assert found is not None
+    spec = found["spec"]
+    assert spec.get("mechanism") == "defaults"
+    assert "default_name" not in spec
+    assert "default_literal" not in spec
+
+
 def test_identify_carries_bytecode_fields_for_a_single_line_constant() -> None:
     src = "def f():\n    return 1\n"
     mutant = next(m for m in enumerate_mutants("t.py", src) if m.operator == "lang:const:num:1->2")

@@ -129,13 +129,17 @@ infrastructure failure). Options it does not know are passed on to `balamut muta
 
 | kind | mutates |
 |---|---|
-| `src` | comparisons, arithmetic, boolean logic, constants, returns, calls, dropped rounding (`round`, `.quantize`), default arguments |
+| `src` | comparisons (the sufficient relational replacements), arithmetic, boolean logic, conditions forced true or false, dropped `and`/`or` and arithmetic operands, constants (numbers, strings, booleans), signs, assigned values, exception handlers, loops, returns, calls (arguments, `**kwargs`, conversions, string normalizers, dropped rounding: `round`, `.quantize`), positional and keyword-only default arguments |
 | `extreme` | whole statements (statement deletion), the strongest signal a test exercises behaviour |
 | `concurrency` | lock removal, `with_for_update` drops, and queue claim/settle predicates you configure |
 | `fault` | an awaited dependency call raises (commit, flush, ...) or returns the wrong value |
 | `oracle` | the tests themselves: weakened assertions, so a test that cannot fail shows up |
 | `db` | query predicates and grouping keys dropped one at a time (extra `sa`) |
 | `chain` | timezone and filter contracts of call chains (extra `sa`) |
+
+`src` does not mutate strings in docstrings, assertion messages, logging and `warnings.warn` arguments, typing
+helpers or `__all__`/`__slots__`, and does not force conditions on the interpreter, the platform or
+`TYPE_CHECKING`.
 
 Third-party kinds are ordinary importable packages: the value is a tuple of operator
 facts (frozen capability values implementing the `Sites` or `Enumerates` protocol of

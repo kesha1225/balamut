@@ -105,10 +105,15 @@ def identify(
             spec["bc_col"] = bc["bc_col"]
             spec["bc_end_col"] = bc["bc_end_col"]
             spec["bc_mutated"] = bc["bc_mutated"]
-    if mechanism is ApplyMechanism.DEFAULTS and mutant.default_index is not None:
-        # The slot in __defaults__ travels structurally on the mutant; the new value is the mutated literal.
-        spec["default_index"] = mutant.default_index
-        spec["default_literal"] = mutant.mutated
+    if mechanism is ApplyMechanism.DEFAULTS:
+        # The slot in __defaults__ (or the key in __kwdefaults__) travels structurally on the mutant; the new value
+        # is the mutated literal.
+        if mutant.default_index is not None:
+            spec["default_index"] = mutant.default_index
+            spec["default_literal"] = mutant.mutated
+        elif mutant.default_name is not None:
+            spec["default_name"] = mutant.default_name
+            spec["default_literal"] = mutant.mutated
     return {
         "qualname": qualname,
         "func_src": base.func_src,

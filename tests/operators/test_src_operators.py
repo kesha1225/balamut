@@ -1,5 +1,5 @@
 """The src operators beyond the one-swap tables: the sufficient relational set, forced conditions, dropped boolean
-and arithmetic operands, literals, assigned values, handlers, loops, splats, normalizers and every kind of default.
+and arithmetic operands, literals, assigned values, handlers, splats, normalizers and every kind of default.
 
 Each test pins both what an operator emits and what it must leave alone (an arid site, an equivalent swap, a
 statement outside a function body)."""
@@ -16,7 +16,6 @@ from balamut.core.triage import Bucket, classify
 from balamut.engine.enumeration import resolve_kinds
 from balamut.operators.facts import EnumContext, enumerate_facts, mutant_mechanism
 from balamut.operators.kit import (
-    AugAssignToAssignSite,
     DropBoolOperandSite,
     DropEachMappingSplat,
     KeepOperandSite,
@@ -31,7 +30,6 @@ from balamut.operators.src import (
     ConditionTest,
     EnvironmentProbe,
     HandlerType,
-    LoopIterable,
     OperandOperation,
     ValueUsed,
     _arid_call,
@@ -266,12 +264,6 @@ def test_true_division_swaps_to_floor_division() -> None:
     assert ("lang:binop:Div->FloorDiv", "a / b", "a // b") in _changes("def f(a, b):\n    return a / b\n", "lang:binop")
 
 
-def test_an_accumulation_becomes_an_assignment() -> None:
-    found = _changes("def f(a, b):\n    a += b\n    return a\n", "lang:augassign:Add->Assign")
-    assert found == {("lang:augassign:Add->Assign", "a += b", "a = b")}
-    assert not _changes("total = 0\ntotal += 1\n", "lang:augassign:Add->Assign")
-
-
 # --- Constants ---------------------------------------------------------------------------------------------------
 
 
@@ -337,9 +329,10 @@ def test_arid_strings_are_left_alone() -> None:
             assert x, "message"
             y = cast("int", x)
             z = f"text {x!r:>10}"
+            t = t"text {x}"
             if __name__ == "__main__":
                 pass
-            return y, z
+            return y, z, t
     '''
     assert not _changes(source, "lang:const:str")
 
@@ -498,27 +491,6 @@ def test_an_exception_group_handler_and_an_empty_tuple_are_left_alone() -> None:
     assert HandlerType(specific=False).matches(group, ctx3) is False
 
 
-def test_a_loop_runs_zero_times() -> None:
-    source = """
-        def f(xs):
-            for x in xs:
-                g(x)
-            for y in []:
-                g(y)
-            for z in ():
-                g(z)
-            for w in (1, 2):
-                g(w)
-    """
-    assert _changes(source, "lang:loop") == {
-        ("lang:loop:zero-iteration", "xs", "[]"),
-        ("lang:loop:zero-iteration", "(1, 2)", "[]"),
-    }
-    assert not _changes("async def f(xs):\n    async for x in xs:\n        g(x)\n", "lang:loop")
-    target, ctx = _node("for x in xs:\n    pass\n", lambda n: isinstance(n, ast.Name) and n.id == "x")
-    assert LoopIterable().matches(target, ctx) is False
-
-
 # --- Calls --------------------------------------------------------------------------------------------------------
 
 
@@ -637,7 +609,6 @@ def test_every_new_finder_ignores_a_node_of_another_shape() -> None:
         DropBoolOperandSite(),
         StringLiteralSite(),
         SignDropSite(),
-        AugAssignToAssignSite(),
     ):
         assert list(finder.find(name, ctx)) == [], finder
     assert list(SignDropSite().find(negation, ctx)) == []

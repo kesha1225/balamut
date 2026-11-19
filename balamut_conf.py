@@ -762,6 +762,62 @@ init(
             original="node.value == 0",
         ),
         Accept(
+            reason="a display shorter than two elements returned above, so <= 2 holds exactly when == 2 does",
+            path="src/balamut/operators/kit.py",
+            function="DropLastElementSite.find",
+            operator="lang:compare:Eq->LtE",
+            original="len(items) == 2",
+        ),
+        Accept(
+            reason=(
+                "the parse only tells whether the cut left a bracket unmatched, and the comma that keeps a"
+                " two-element tuple a tuple changes no bracket"
+            ),
+            path="src/balamut/operators/kit.py",
+            function="DropLastElementSite.find",
+            operator="lang:binop:Add->lhs",
+            original="data[whole[0] : previous[1]] + text.encode()",
+        ),
+        Accept(
+            reason=(
+                "the parsed text is a slice of a module that parsed, cut between tokens, so ast.parse rejects it only"
+                " with a SyntaxError"
+            ),
+            path="src/balamut/operators/kit.py",
+            function="DropLastElementSite.find",
+            operator="lang:except:Exception",
+            original="SyntaxError",
+        ),
+        # --- src/balamut/operators/src.py
+        Accept(
+            reason="the number of words that differ is the same counted from either name",
+            path="src/balamut/operators/src.py",
+            function="_alike",
+            operator="lang:call:arg-swap",
+            original="zip(words, others, strict=True)",
+        ),
+        Accept(
+            reason="the condition before checks that both names have as many words, so strict never fires",
+            path="src/balamut/operators/src.py",
+            function="_alike",
+            operator="lang:call:kwarg-drop",
+            original=", strict=True",
+        ),
+        Accept(
+            reason="the condition before checks that both names have as many words, so strict never fires",
+            path="src/balamut/operators/src.py",
+            function="_alike",
+            operator="lang:const:bool",
+            original="True",
+        ),
+        Accept(
+            reason="_alike is symmetric: two names are alike in either order",
+            path="src/balamut/operators/src.py",
+            function="_closest",
+            operator="lang:call:arg-swap",
+            original="_alike(name, other)",
+        ),
+        Accept(
             reason=(
                 "a None parent has no suites: _suite_candidates returns [] for it and suite_of falls through to its"
                 " final return None"

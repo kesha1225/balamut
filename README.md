@@ -129,7 +129,7 @@ infrastructure failure). Options it does not know are passed on to `balamut muta
 
 | kind | mutates |
 |---|---|
-| `src` | comparisons (the sufficient relational replacements), arithmetic, boolean logic, conditions forced true or false, dropped `and`/`or` and arithmetic operands, constants (numbers, strings, booleans), signs, assigned values, exception handlers, loops, returns, calls (arguments, `**kwargs`, conversions, string normalizers, dropped rounding: `round`, `.quantize`), positional and keyword-only default arguments |
+| `src` | comparisons (the sufficient relational replacements), arithmetic, boolean logic, conditions forced true or false, dropped `and`/`or` and arithmetic operands, constants (numbers, strings, booleans), signs, assigned values, exception handlers, loops, returns, calls (arguments, `**kwargs`, conversions, string normalizers, dropped rounding: `round`, `.quantize`; a library method swapped for its neighbour: `match`/`search`, `basename`/`dirname`), the last element of a list, tuple, set or dict display dropped, a variable or a `self` method replaced with a name in scope that differs in one word, positional and keyword-only default arguments |
 | `extreme` | whole statements (statement deletion), the strongest signal a test exercises behaviour |
 | `concurrency` | lock removal, `with_for_update` drops, and queue claim/settle predicates you configure |
 | `fault` | an awaited dependency call raises (commit, flush, ...) or returns the wrong value |
@@ -138,8 +138,8 @@ infrastructure failure). Options it does not know are passed on to `balamut muta
 | `chain` | timezone and filter contracts of call chains (extra `sa`) |
 
 `src` does not mutate strings in docstrings, assertion messages, logging and `warnings.warn` arguments, typing
-helpers or `__all__`/`__slots__`, and does not force conditions on the interpreter, the platform or
-`TYPE_CHECKING`.
+helpers or `__all__`/`__slots__`, does not force conditions on the interpreter, the platform or
+`TYPE_CHECKING`, and drops no element of a tuple that is returned, yielded or unpacked into several targets.
 
 Third-party kinds are ordinary importable packages: the value is a tuple of operator
 facts (frozen capability values implementing the `Sites` or `Enumerates` protocol of

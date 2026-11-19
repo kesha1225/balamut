@@ -72,32 +72,12 @@
     6
    ],
    [
-    7,
-    109,
-    115,
-    "values",
-    "[]",
-    "lang:loop:zero-iteration",
-    7,
-    7
-   ],
-   [
     8,
     125,
     140,
     "result += value",
     "result -= value",
     "lang:augassign:Add->Sub",
-    8,
-    8
-   ],
-   [
-    8,
-    125,
-    140,
-    "result += value",
-    "result = value",
-    "lang:augassign:Add->Assign",
     8,
     8
    ],
@@ -269,6 +249,16 @@
     "[1, 2, 3]",
     "None",
     "lang:assign:None",
+    10,
+    10
+   ],
+   [
+    10,
+    194,
+    197,
+    ", 3",
+    "",
+    "lang:container:drop-last",
     10,
     10
    ],
@@ -1456,16 +1446,6 @@
     13
    ],
    [
-    13,
-    331,
-    340,
-    "cost *= 2",
-    "cost = 2",
-    "lang:augassign:Mult->Assign",
-    13,
-    13
-   ],
-   [
     14,
     352,
     366,
@@ -2500,16 +2480,6 @@
     61
    ],
    [
-    62,
-    1621,
-    1626,
-    "items",
-    "[]",
-    "lang:loop:zero-iteration",
-    62,
-    62
-   ],
-   [
     67,
     1721,
     1734,
@@ -2518,26 +2488,6 @@
     "lang:augassign:Add->Sub",
     67,
     67
-   ],
-   [
-    67,
-    1721,
-    1734,
-    "total += item",
-    "total = item",
-    "lang:augassign:Add->Assign",
-    67,
-    67
-   ],
-   [
-    73,
-    1866,
-    1871,
-    "items",
-    "[]",
-    "lang:loop:zero-iteration",
-    73,
-    73
    ],
    [
     81,
@@ -4206,6 +4156,16 @@
     "0",
     "-1",
     "lang:const:num:0->-1",
+    115,
+    115
+   ],
+   [
+    115,
+    3465,
+    3480,
+    ", Task.attempts",
+    ",",
+    "lang:container:drop-last",
     115,
     115
    ],

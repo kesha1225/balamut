@@ -11,23 +11,25 @@ The operator set follows the studies of mutants against real faults: the suffici
 (Kaminski et al., AST 2011; Just et al., STVR 2014), a condition forced to either constant and an ``and``/``or``
 operand dropped (the non-redundant COR set), the operators most often coupled to real faults (conditional and
 relational replacement and statement deletion; Just et al., FSE 2014), the extended arithmetic and constant
-operators (Laurent et al., ICST 2017) and the Python-specific removals of PyTation (Python conversions and
-normalizers). Statement-level operators mutate function bodies only: a module or class body runs once, at import.
+operators (Laurent et al., ICST 2017), the Python-specific removals of PyTation (Python conversions and
+normalizers), and the commonest single-statement fixes of Python undone (Kamienski et al., MSR 2021; Richter and
+Wehrheim, MSR 2022): the last element of a display dropped, a name or ``self`` method replaced with a similar one in
+scope and a library method with its neighbour. Statement-level operators mutate function bodies only: a module or
+class body runs once, at import.
 """
 
 from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
-from balamut.core.mutants import ApplyMechanism, Mutant
+from balamut.core.mutants import ApplyMechanism, BcEdit, Mutant
 from balamut.core.triage import Bucket
 from balamut.operators.facts import EnumContext, OperatorKind, enumerate_facts
 from balamut.operators.kit import (
     AugAssignSwapSite,
-    AugAssignToAssignSite,
     BinopSwapSite,
     BoolopSwapSite,
     CalleeDropSite,
@@ -37,6 +39,7 @@ from balamut.operators.kit import (
     DropEachArgument,
     DropEachKeyword,
     DropEachMappingSplat,
+    DropLastElementSite,
     FlipBoolSite,
     KeepOperandSite,
     Library,
@@ -51,6 +54,7 @@ from balamut.operators.kit import (
     StringLiteralSite,
     SwapAdjacentArgs,
     UnaryOperand,
+    attr_name_span,
     const_of,
     context,
     expr_value,
@@ -368,23 +372,206 @@ class HandlerType(Matcher):
 
 
 @dataclass(frozen=True, slots=True)
-class LoopIterable(Matcher):
-    """The iterable of a ``for`` loop, unless it is an empty tuple (an empty list is already what the mutant
-    writes, and emit skips a no-op)."""
-
-    def matches(self, node: ast.AST, ctx: EnumContext) -> bool:
-        parent = ctx.parent_of(node)
-        return (
-            isinstance(parent, ast.For) and parent.iter is node and not (isinstance(node, ast.Tuple) and not node.elts)
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class ValueUsed(Matcher):
     """The expression's value is used: it is not a bare expression statement."""
 
     def matches(self, node: ast.AST, ctx: EnumContext) -> bool:
         return not isinstance(ctx.parent_of(node), ast.Expr)
+
+
+@dataclass(frozen=True, slots=True)
+class DataDisplay(Matcher):
+    """A list, tuple, set or dict display read as data: not an assignment or loop target, not a returned or yielded
+    tuple of values or one unpacked into several targets (dropping one of those changes the arity every caller
+    unpacks), and not an argument of logging, ``warnings.warn`` or a typing helper."""
+
+    def matches(self, node: ast.AST, ctx: EnumContext) -> bool:
+        if isinstance(node, ast.List | ast.Tuple) and not isinstance(node.ctx, ast.Load):
+            return False
+        if not isinstance(node, ast.List | ast.Tuple | ast.Set | ast.Dict):
+            return False
+        if isinstance(node, ast.Tuple):
+            match ctx.parent_of(node):
+                case ast.Return() | ast.Yield() | ast.YieldFrom():
+                    return False
+                case ast.Assign(targets=targets) if any(isinstance(t, ast.Tuple | ast.List) for t in targets):
+                    return False
+                case _:
+                    pass
+        return not any(_arid_expression(ancestor) for ancestor in _ancestors(node, ctx))
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeFacts:
+    """What the name operator needs from the whole module, computed once per file: per eligible site (a variable
+    load or a ``self`` method called, by node id) the similar name that replaces it."""
+
+    similar: dict[int, str]
+
+
+_SCOPE_KEY = "src:scope"
+_FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+_NESTED_SCOPES = (*_FUNCTIONS, ast.Lambda, ast.ClassDef)
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _words(name: str) -> tuple[str, ...]:
+    """The words of a snake_case or camelCase name, lowercased, digits apart."""
+    return tuple(word.lower() for word in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", name))
+
+
+def _alike(name: str, other: str) -> bool:
+    """Whether two names are the same words but one (``start_line``/``end_line``, ``val1``/``val2``), neither of them
+    private or special. One-word names one edit apart are not alike: in one scope they are mostly a collection and
+    its element (``items``/``item``), and on the PyMutBench corpus their swaps revealed no fault the one-word swaps
+    miss."""
+    words, others = _words(name), _words(other)
+    return (
+        not name.startswith("__")
+        and not other.startswith("__")
+        and len(words) == len(others) >= 2
+        and sum(x != y for x, y in zip(words, others, strict=True)) == 1
+    )
+
+
+def _closest(name: str, candidates: Iterable[str]) -> str | None:
+    """The first alike candidate in sorted order (one replacement per site, the same on every run)."""
+    return min((other for other in candidates if _alike(name, other)), default=None)
+
+
+def _own_nodes(scope: ast.AST, *, comprehensions: bool) -> Iterator[ast.AST]:
+    """The nodes of a function's own scope: nested functions, lambdas and classes left out, comprehensions (their
+    own scope for the names they bind) only with ``comprehensions``."""
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, _NESTED_SCOPES) or (not comprehensions and isinstance(node, _COMPREHENSIONS)):
+            continue
+        yield node
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _functions_in(scope: ast.AST) -> Iterator[ast.FunctionDef | ast.AsyncFunctionDef]:
+    """The functions a scope defines, its classes' methods among them, but none defined inside another function."""
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, _FUNCTIONS):
+            yield node
+        else:
+            stack.extend(ast.iter_child_nodes(node))
+
+
+def _bound(func: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    """The names a function binds: its parameters and every name its own scope stores to."""
+    args = func.args
+    names = {arg.arg for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg) if arg}
+    for node in _own_nodes(func, comprehensions=False):
+        match node:
+            case ast.Name(id=name, ctx=ast.Store()):
+                names.add(name)
+            case ast.ExceptHandler(name=str(name)):
+                names.add(name)
+            case _:
+                pass
+    return names
+
+
+def _similar_names(tree: ast.Module, ctx: EnumContext) -> dict[int, str]:
+    """Per variable load in a function (a name the function or an enclosing one binds), the most similar other such
+    name; per method called on the first parameter of a method, the most similar other method of its class (one the
+    class defines or one called on that parameter: a data attribute called fails at once)."""
+    found: dict[int, str] = {}
+
+    def visit_function(func: ast.FunctionDef | ast.AsyncFunctionDef, outer: frozenset[str]) -> None:
+        visible = outer | _bound(func)
+        for node in _own_nodes(func, comprehensions=True):
+            if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in visible):
+                continue
+            parent = ctx.parent_of(node)
+            if isinstance(parent, ast.Call) and parent.func is node:
+                continue
+            replacement = _closest(node.id, visible)
+            if replacement is not None:
+                found[id(node)] = replacement
+        for nested in _functions_in(func):
+            visit_function(nested, visible)
+
+    def visit_class(cls: ast.ClassDef) -> None:
+        methods = [m for m in cls.body if isinstance(m, _FUNCTIONS)]
+        names = {m.name for m in methods}
+        calls: list[ast.Attribute] = []
+        for method in methods:
+            positional = [*method.args.posonlyargs, *method.args.args]
+            if not positional:
+                continue
+            receiver = positional[0].arg
+            for node in ast.walk(method):
+                match node:
+                    case ast.Call(func=ast.Attribute(value=ast.Name(id=name)) as called) if name == receiver:
+                        names.add(called.attr)
+                        calls.append(called)
+                    case _:
+                        pass
+        for called in calls:
+            replacement = _closest(called.attr, names)
+            if replacement is not None:
+                found[id(called)] = replacement
+
+    for func in _functions_in(tree):
+        visit_function(func, frozenset())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            visit_class(node)
+    return found
+
+
+def _scope_facts(ctx: EnumContext) -> ScopeFacts:
+    facts = ctx.prepared(_SCOPE_KEY)
+    assert isinstance(facts, ScopeFacts), "the scope facts are prepared before the walk"
+    return facts
+
+
+@dataclass(frozen=True, slots=True)
+class ScopedRewrite(SrcRewrite):
+    """A src walk fact that reads the module's scope facts, prepared once per file before the walk."""
+
+    def prepare(self, ctx: EnumContext, tree: ast.Module) -> EnumContext:
+        ctx.remember(_SCOPE_KEY, ScopeFacts(_similar_names(tree, ctx)))
+        return ctx
+
+
+@dataclass(frozen=True, slots=True)
+class HasSimilarName(Matcher):
+    """A variable load or a ``self`` method called that has a similar name in scope (the prepared scope facts)."""
+
+    def matches(self, node: ast.AST, ctx: EnumContext) -> bool:
+        return id(node) in _scope_facts(ctx).similar
+
+
+@dataclass(frozen=True, slots=True)
+class SimilarNameSite(SiteFinder):
+    """The commonest single-statement bugs of Python, "Change Identifier Used" and "Wrong Function/Method Name"
+    (Kamienski et al., MSR 2021; Richter and Wehrheim, MSR 2022): a name replaced with the most similar other name in
+    scope, the tailored identifier operator of Allamanis et al. (2016) restricted to names that differ in one word. A
+    method call on ``self`` gets another method of the class (a similar method called, Just et al., FSE 2014); an
+    attribute read keeps its name, as on the PyMutBench corpus its swaps revealed no fault the other operators miss.
+    Only a site ``HasSimilarName`` matched has a replacement."""
+
+    def find(
+        self, node: ast.AST, ctx: EnumContext
+    ) -> Iterator[tuple[ast.expr | ast.stmt, str, tuple[int, int] | None, str | None, BcEdit | None]]:
+        match node:
+            case ast.Name():
+                replacement = _scope_facts(ctx).similar[id(node)]
+                yield node, replacement, None, operator_name(Library.LANG, "name", "similar"), None
+            case ast.Attribute():
+                span = attr_name_span(node, ctx)
+                if span is not None:
+                    replacement = _scope_facts(ctx).similar[id(node)]
+                    yield node, replacement, span, operator_name(Library.LANG, "method", "similar"), None
+            case _:
+                pass
 
 
 _COMPARE_SWAP: tuple[tuple[type[ast.cmpop], type[ast.cmpop]], ...] = (
@@ -449,6 +636,30 @@ _METHOD_SWAP: tuple[tuple[str, str], ...] = (
     # only "die" of AttributeError. `rindex -> index` is safe: `.rindex()` exists only where `.index()` does.
     ("rindex", "index"),
 )
+# The similar library method called (Just et al., FSE 2014; "Wrong Function/Method Name", Kamienski et al., MSR
+# 2021): the same receiver and arguments, the neighbouring operation of a list, a mapping, a string, a regular
+# expression, a set, ``math`` or ``os.path``. ``append -> extend`` is left out: the commonest of these calls, it gave
+# most of the table's mutants and, on the PyMutBench corpus, revealed no fault the other operators miss.
+_SIMILAR_METHODS: tuple[tuple[str, str], ...] = (
+    ("extend", "append"),
+    ("keys", "values"),
+    ("values", "keys"),
+    ("lower", "upper"),
+    ("upper", "lower"),
+    ("match", "search"),
+    ("search", "match"),
+    ("fullmatch", "match"),
+    ("partition", "rpartition"),
+    ("rpartition", "partition"),
+    ("ljust", "rjust"),
+    ("rjust", "ljust"),
+    ("issubset", "issuperset"),
+    ("issuperset", "issubset"),
+    ("floor", "ceil"),
+    ("ceil", "floor"),
+    ("basename", "dirname"),
+    ("dirname", "basename"),
+)
 # Builtin drops: the call returns its operand rounded, converted, ordered or deduplicated, so the operand stands in
 # for it (PyTation's RemConvFunc; ``abs`` is the ABS operator of Laurent et al.).
 _BUILTIN_DROP = frozenset({"round", "abs", "int", "float", "str", "sorted", "reversed", "set", "frozenset"})
@@ -503,6 +714,11 @@ _WALK_FACTS: OperatorKind = (
     SrcRewrite(
         match=body_site() & node_is(ast.Call),
         transform=MethodSwapSite(_METHOD_SWAP, namespace=operator_name(Library.STD, "str")),
+        triage=Bucket.HIGH,
+    ),
+    SrcRewrite(
+        match=body_site() & node_is(ast.Call),
+        transform=MethodSwapSite(_SIMILAR_METHODS, namespace=operator_name(Library.STD, "method")),
         triage=Bucket.HIGH,
     ),
     SrcRewrite(
@@ -585,11 +801,9 @@ _WALK_FACTS: OperatorKind = (
         transform=DropBoolOperandSite(),
         triage=Bucket.HIGH,
     ),
-    # Arithmetic: a term of the formula lost, and an accumulation turned into an assignment.
+    # Arithmetic: a term of the formula lost.
     SrcRewrite(match=body_site() & OperandOperation(), transform=KeepOperandSite(), triage=Bucket.HIGH),
-    SrcRewrite(match=body_site() & in_function() & node_is(ast.AugAssign), transform=AugAssignToAssignSite()),
-    # State and control: an assigned value lost, a handler that catches nothing or everything, a loop that never
-    # runs.
+    # State and control: an assigned value lost, a handler that catches nothing or everything.
     SrcReplace(
         match=body_site() & in_function() & AssignedValue(),
         text="None",
@@ -608,12 +822,6 @@ _WALK_FACTS: OperatorKind = (
         operator=operator_name(Library.LANG, "except", "Exception"),
         triage=Bucket.HIGH,
     ),
-    SrcReplace(
-        match=body_site() & in_function() & LoopIterable(),
-        text="[]",
-        operator=operator_name(Library.LANG, "loop", "zero-iteration"),
-        triage=Bucket.HIGH,
-    ),
     # Calls: forwarded options lost, a normalizing method call omitted.
     SrcRewrite(
         match=body_site() & node_is(ast.Call),
@@ -624,6 +832,14 @@ _WALK_FACTS: OperatorKind = (
     SrcRewrite(
         match=body_site() & node_is(ast.Call) & ValueUsed(),
         transform=MethodDropSite(_STR_NORMALIZERS, namespace=operator_name(Library.STD, "str")),
+        triage=Bucket.HIGH,
+    ),
+    # What a fix adds most often to one statement (Kamienski et al., MSR 2021): the element a collection lacked, and
+    # the right name in place of a similar one.
+    SrcRewrite(match=body_site() & DataDisplay(), transform=DropLastElementSite(), triage=Bucket.HIGH),
+    ScopedRewrite(
+        match=body_site() & node_is(ast.Name, ast.Attribute) & HasSimilarName(),
+        transform=SimilarNameSite(),
         triage=Bucket.HIGH,
     ),
 )

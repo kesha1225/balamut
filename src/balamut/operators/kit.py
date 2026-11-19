@@ -406,7 +406,7 @@ class CallToArgument(SiteFinder):
                     yield node, _atomic(ast.unparse(argument), argument), None, None, None
 
 
-def _attr_name_span(func: ast.Attribute, ctx: EnumContext) -> tuple[int, int] | None:
+def attr_name_span(func: ast.Attribute, ctx: EnumContext) -> tuple[int, int] | None:
     """The byte span of just the attribute name (the Attribute node spans the whole expression)."""
     if func.end_lineno is None or func.end_col_offset is None:
         return None
@@ -428,7 +428,7 @@ class AttrSwap(SiteFinder):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             for name, swapped in self.swaps:
                 if node.func.attr == name:
-                    yield node.func, swapped, _attr_name_span(node.func, ctx), None, None
+                    yield node.func, swapped, attr_name_span(node.func, ctx), None, None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1123,17 +1123,45 @@ class SignDropSite(SiteFinder):
 
 
 @dataclass(frozen=True, slots=True)
-class AugAssignToAssignSite(SiteFinder):
-    """``x op= y`` becomes ``x = y``: the accumulation lost (ASRS, Gay and Salahirad, ICST 2023)."""
+class DropLastElementSite(SiteFinder):
+    """RemElCont (PyTation): the last element of a list, tuple or set display, or the last entry of a dict display,
+    removed with its separator: the element a fix appends ("Add Elements to Iterable", Kamienski et al., MSR 2021).
+    One mutant per display of at least two elements in brackets of its own; a two-element tuple keeps the comma that
+    makes it a tuple. The cut runs from the end of the element before the last to the closing bracket, short of
+    a trailing comma and the whitespace before the bracket. A tuple without brackets is left alone: when its last
+    element ends with a bracket (``a, f(b)``), the cut leaves that bracket unmatched and the edited text does not
+    parse."""
 
     namespace: Library | str = Library.LANG
 
     def find(
         self, node: ast.AST, ctx: EnumContext
     ) -> Iterator[tuple[ast.expr | ast.stmt, str, tuple[int, int] | None, str | None, BcEdit | None]]:
-        if isinstance(node, ast.AugAssign):
-            name = operator_name(_namespace(self.namespace), "augassign", f"{type(node.op).__name__}->Assign")
-            yield node, f"{ast.unparse(node.target)} = {ast.unparse(node.value)}", None, name, None
+        match node:
+            case ast.List(elts=items) | ast.Tuple(elts=items) | ast.Set(elts=items) | ast.Dict(values=items):
+                pass
+            case _:
+                return
+        if len(items) < 2:
+            return
+        whole, previous = node_byte_span(node, ctx.line_starts), node_byte_span(items[-2], ctx.line_starts)
+        if whole is None or previous is None:
+            return
+        data = ctx.source_bytes
+        cut = whole[1] - 1
+        if data[cut : cut + 1] not in (b"]", b"}", b")"):
+            return
+        while data[cut - 1 : cut] in (b" ", b"\t", b"\r", b"\n"):
+            cut -= 1
+        trailing_comma = data[cut - 1 : cut] == b","
+        if trailing_comma:
+            cut -= 1
+        text = "," if isinstance(node, ast.Tuple) and len(items) == 2 and not trailing_comma else ""
+        try:
+            ast.parse(data[whole[0] : previous[1]] + text.encode() + data[cut : whole[1]])
+        except SyntaxError:
+            return
+        yield node, text, (previous[1], cut), operator_name(_namespace(self.namespace), "container", "drop-last"), None
 
 
 # --- Facts -------------------------------------------------------------------

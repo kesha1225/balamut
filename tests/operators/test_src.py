@@ -149,10 +149,9 @@ def test_src_kind_number_shift_and_const_union() -> None:
 
 
 def test_src_kind_augassign_swappable_filter() -> None:
-    # ``node_is(AugAssign) & SwappableBinop`` still suppresses a zero-numeric right operand; the accumulation turned
-    # into an assignment (``a = 0``) is a change of its own.
+    # ``node_is(AugAssign) & SwappableBinop`` still suppresses a zero-numeric right operand.
     ops = _ops("def f(a):\n    a += 0\n    return a\n")
-    assert {op for op in ops if op.startswith("lang:augassign")} == {"lang:augassign:Add->Assign"}
+    assert not {op for op in ops if op.startswith("lang:augassign")}
 
 
 def test_src_kind_delete_call_composition() -> None:

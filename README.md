@@ -33,7 +33,8 @@ next: fix_findings_and_rerun
   measured cost, and the request stops at the first failure. Verdicts are cached by content: a mutant is re-run
   only when the code its tests actually executed changes.
 * **Every verdict is proven.** A kill counts only when the killing test passes on the immediately restored
-  original. A warm survivor whose run never entered the mutated code is re-checked in a fresh fork. A hang is a
+  original. A warm survivor whose run never entered the mutated code is re-checked in a fresh fork; one whose tests
+  ran the original through a closure built before the mutant is unsupported. A hang is a
   kill only when the mutant ran, the hung test is known and it passes on the original in the same budget.
   Anything else stays `timeout` with a reason; an unsupported mutant is never reported as a survivor.
 * **Diffs are pinned.** The gate pins the diff against a merge base with content hashes. Editing a file of the

@@ -86,10 +86,12 @@ _DEPS = pytest.StashKey[kill_deps.DepsRecorder]()
 _RELOADS = pytest.StashKey[ReloadLog]()
 
 
-class MutantSpec(TypedDict):
+class MutantSite(TypedDict):
+    """A mutant spec without the mutated module text. A campaign keeps this for every mutant and adds the text when
+    it writes the request: a text kept per mutant would hold each file once for every mutant in it."""
+
     module: str
     qualname: str
-    mutated_source: str
     kind: str
     self_covered: NotRequired[bool]  # the mutant mutates its own covering test: patch the collected module
     mechanism: NotRequired[str]  # ApplyMechanism value; absent means CODE
@@ -112,6 +114,10 @@ class MutantSpec(TypedDict):
     # the mutant keeps the original body, so the test that called it never ran the mutant.
     stale_path: NotRequired[str]
     deps_path: NotRequired[str]  # where the lease publishes the repository functions it entered
+
+
+class MutantSpec(MutantSite):
+    mutated_source: str
 
 
 _REQUIRED_SPEC_KEYS = ("module", "qualname", "mutated_source", "kind")
@@ -724,6 +730,7 @@ __all__ = [
     "TOUCHED_MARKER_SUFFIX",
     "UNSUPPORTED_MARKER_SUFFIX",
     "ApplyOutcome",
+    "MutantSite",
     "MutantSpec",
     "apply_mutation",
     "apply_mutation_reversible",

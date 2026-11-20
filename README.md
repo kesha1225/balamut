@@ -224,14 +224,14 @@ each tool's own campaign.
   <img alt="Share of real bugs with a pre-fix witness, per tool, with 95% intervals" src="docs/images/bench-detection.light.svg">
 </picture>
 
-The tools generate a pre-fix witness for 6.5% (pytest-gremlins) to 23.7% (mutation) of the bugs, balamut's
-default source kinds for 11.4%, with a 95% rank interval of 6–9. Judged on the fixed program alone, the rates are
-24.9% to 61.8% (balamut 40.3%), but 31% to 44% of those detections rest only on lines the fix inserted. Detection
-grows with the number of mutants a tool emits; at fixed budgets the tools are close (ten random mutants contain a
-pre-fix witness with probability 5.3% to 9.4%, balamut's 6.6%), and their order does not repeat between halves
-of the projects. In each tool's own campaign on six projects, balamut's engine agrees with the oracle on all 1,892
-comparable verdicts, as do cosmic-ray, universalmutator and pytest-gremlins on theirs, while the oracle kills up
-to 92% (fest) of the survivors other engines report.
+The tools generate a pre-fix witness for 6.5% (pytest-gremlins) to 28.6% (balamut, in its default configuration)
+of the bugs, balamut with a 95% rank interval of 1. Judged on the fixed program alone, the rates are 24.9% to 72.3%
+(balamut), but 25% to 44% of those detections rest only on lines the fix inserted. Detection grows with the number
+of mutants a tool emits; at fixed budgets the tools are close (ten random mutants contain a pre-fix witness with
+probability 5.3% to 11.4%, balamut at the top), and their order does not repeat between halves of the projects.
+In each tool's own campaign on six projects, balamut's engine agrees with the oracle on 4,741 of 4,742 comparable
+verdicts, universalmutator's on 5,443 of 5,444, while cosmic-ray and pytest-gremlins agree on all of theirs; the
+oracle kills up to 92% (fest) of the survivors other engines report.
 
 The benchmark is maintained by balamut's authors; the protocol, every judged mutant and the scripts behind every
 number are in [`bench/`](bench), and any tool's maintainers can correct its adapter or configuration.

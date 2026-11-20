@@ -322,6 +322,51 @@ def test_apply_mutation_marks_exact_nested_code_when_it_executes(tmp_path: Path)
     assert not marker.exists()  # restore removed the local monitoring callback
 
 
+def test_apply_mutation_marks_a_closure_made_before_it_as_stale(tmp_path: Path) -> None:
+    source = "def outer():\n    def inner():\n        return 1\n    return inner\n"
+    module = _module("m_touch_stale", source)
+    outer = resolve_function(module, "outer")
+    assert outer is not None
+    earlier = outer()  # a decorator's wrapper built at import: it keeps the original body
+    touched, stale = tmp_path / "touched", tmp_path / "stale"
+    outcome, restore = apply_mutation_reversible(
+        module,
+        {
+            "module": "m_touch_stale",
+            "qualname": "outer",
+            "kind": "src",
+            "mutated_source": "def outer():\n    def inner():\n        return 2\n    return inner\n",
+            "target_lineno": 3,
+            "touch_path": str(touched),
+            "stale_path": str(stale),
+        },
+    )
+    assert outcome is ApplyOutcome.APPLIED
+    assert restore is not None
+    assert earlier() == 1  # the original ran, not the mutant
+    assert stale.read_text(encoding="utf-8") == "1"
+    assert not touched.exists()
+    assert outer()() == 2  # a closure made under the mutant runs it
+    assert touched.read_text(encoding="utf-8") == "1"
+    restore()
+    stale.unlink()
+    assert earlier() == 1
+    assert not stale.exists()  # restore stopped watching the original
+
+
+def test_arm_touch_marker_never_marks_the_shared_code_stale(tmp_path: Path) -> None:
+    def f() -> int:
+        return 0
+
+    touched, stale = tmp_path / "touched", tmp_path / "stale"
+    disarm = plugin._arm_touch_marker((f.__code__,), str(touched), stale=(f.__code__,), stale_path=str(stale))
+    f()
+    disarm()
+
+    assert touched.read_text(encoding="utf-8") == "1"
+    assert not stale.exists()
+
+
 def test_apply_mutation_marks_outer_site_on_line_shared_with_lambda(tmp_path: Path) -> None:
     source = "def outer(value):\n    return (lambda: 1, value + 1)\n"
     mutated_source = "def outer(value):\n    return (lambda: 1, value - 1)\n"
@@ -865,6 +910,69 @@ def test_arm_touch_marker_callback_writes_the_marker(monkeypatch: pytest.MonkeyP
     restore()
 
 
+def _captured_monitoring(monkeypatch: pytest.MonkeyPatch) -> tuple[list[Callable[..., object]], list[types.CodeType]]:
+    """The callback and the watched code objects of an arm, with ``sys.monitoring`` faked: the callback is then called
+    by the test itself, where coverage sees it (a real monitoring callback runs untraced)."""
+    registered: list[Callable[..., object]] = []
+    watched: list[types.CodeType] = []
+
+    def register_callback(_tool_id: int, _event: object, func: Callable[..., object] | None) -> None:
+        if func is not None:
+            registered.append(func)
+
+    def set_local_events(_tool_id: int, code: types.CodeType, events: int) -> None:
+        if events:
+            watched.append(code)
+
+    monkeypatch.setattr(sys.monitoring, "use_tool_id", _noop)
+    monkeypatch.setattr(sys.monitoring, "register_callback", register_callback)
+    monkeypatch.setattr(sys.monitoring, "set_local_events", set_local_events)
+    monkeypatch.setattr(sys.monitoring, "free_tool_id", _noop)
+    monkeypatch.setattr(sys.monitoring, "clear_tool_id", _noop)
+    return registered, watched
+
+
+def test_arm_touch_marker_callback_marks_an_entry_into_the_original_as_stale(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def mutated() -> int:
+        return 0
+
+    def original() -> int:
+        return 1
+
+    registered, watched = _captured_monitoring(monkeypatch)
+    touched, stale = tmp_path / "touched", tmp_path / "stale"
+    disarm = plugin._arm_touch_marker(
+        (mutated.__code__,), str(touched), stale=(original.__code__, mutated.__code__), stale_path=str(stale)
+    )
+    mark = registered[-1]
+
+    assert watched == [mutated.__code__, original.__code__]  # the shared code object is watched once, as a touch
+    assert mark(mutated.__code__, 0) is sys.monitoring.DISABLE
+    assert touched.read_text(encoding="utf-8") == "1"
+    assert not stale.exists()
+    assert mark(original.__code__, 0) is sys.monitoring.DISABLE
+    assert stale.read_text(encoding="utf-8") == "1"
+    disarm()
+
+
+def test_arm_touch_marker_without_a_stale_path_watches_only_the_mutated_code(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def mutated() -> int:
+        return 0
+
+    def original() -> int:
+        return 1
+
+    _registered, watched = _captured_monitoring(monkeypatch)
+    disarm = plugin._arm_touch_marker((mutated.__code__,), str(tmp_path / "touched"), stale=(original.__code__,))
+
+    assert watched == [mutated.__code__]
+    disarm()
+
+
 def test_apply_defaults_restore_disarms_the_touch_marker(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _module("m_def_disarm", "def f(x=1):\n    return x\n")
     disarmed: list[bool] = []
@@ -872,7 +980,7 @@ def test_apply_defaults_restore_disarms_the_touch_marker(monkeypatch: pytest.Mon
     def disarm() -> None:
         disarmed.append(True)
 
-    def arm(_codes: tuple[types.CodeType, ...], _path: str | None) -> Callable[[], None]:
+    def arm(_codes: tuple[types.CodeType, ...], _path: str | None, **_stale: object) -> Callable[[], None]:
         return disarm
 
     monkeypatch.setattr(plugin, "_arm_touch_marker", arm)
@@ -904,7 +1012,7 @@ def test_apply_defaults_restore_clears_the_cache(monkeypatch: pytest.MonkeyPatch
     def resolve(_module: types.ModuleType, _qualname: str) -> tuple[types.FunctionType | None, Callable[[], None]]:
         return (func, clear)
 
-    def arm(_codes: tuple[types.CodeType, ...], _path: str | None) -> Callable[[], None]:
+    def arm(_codes: tuple[types.CodeType, ...], _path: str | None, **_stale: object) -> Callable[[], None]:
         return _noop
 
     monkeypatch.setattr(plugin, "resolve_with_cache_clear", resolve)

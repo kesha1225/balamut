@@ -44,7 +44,7 @@ from balamut.engine.results import (
 )
 from balamut.engine.timeouts import mutant_timeout_budget
 from balamut.runtime.kill_deps import KILL_DEPS_SUFFIX, KillValidity, kill_deps_read
-from balamut.runtime.plugin import TOUCHED_MARKER_SUFFIX, UNSUPPORTED_MARKER_SUFFIX
+from balamut.runtime.plugin import STALE_MARKER_SUFFIX, TOUCHED_MARKER_SUFFIX, UNSUPPORTED_MARKER_SUFFIX
 
 type KillersByKey = dict[str, frozenset[str]]  # mutant key -> node ids of its earlier killers
 
@@ -151,6 +151,7 @@ def campaign_scope_abort(fatal_errors: queue.Queue[CampaignExactnessError] | Non
 class _Markers:
     unsupported: Path
     touched: Path
+    stale: Path
     deps: Path
 
     @classmethod
@@ -158,11 +159,12 @@ class _Markers:
         return cls(
             Path(f"{daemon.mutant_file}{UNSUPPORTED_MARKER_SUFFIX}"),
             Path(f"{daemon.mutant_file}{TOUCHED_MARKER_SUFFIX}"),
+            Path(f"{daemon.mutant_file}{STALE_MARKER_SUFFIX}"),
             Path(f"{daemon.mutant_file}{KILL_DEPS_SUFFIX}"),
         )
 
     def clear(self) -> None:
-        for marker in (self.unsupported, self.touched, self.deps):
+        for marker in (self.unsupported, self.touched, self.stale, self.deps):
             marker.unlink(missing_ok=True)
 
 
@@ -360,6 +362,11 @@ class _Lease:
             self._defer(item, status)
             self.timing.add(t_request - t_write, t_end - t_request, sub.durations)
             return
+        if status is MutantStatus.SURVIVED and markers.stale.exists():
+            # A covering test ran the original code at the site: a closure or a copy of the function made before the
+            # mutant (a decorator's wrapper built when a test module was imported) keeps the original body, so the
+            # green run never tested the mutant there, touched or not. A fresh fork inherits the same objects.
+            status = MutantStatus.UNSUPPORTED
         untouched_survivor = status is MutantStatus.SURVIVED and not touched and not rejected_kill
         if untouched_survivor and self.defer_untouched is not None:
             # A warm session fixture may have computed an object on the original in an earlier request: such a green

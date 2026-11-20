@@ -517,6 +517,50 @@ def test_reject_untouched_kill_becomes_unsupported(tmp_path: Path, monkeypatch: 
     assert results[0].killed_by == ()
 
 
+def test_survivor_whose_tests_ran_the_original_code_is_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    item = work(0, mutant("src/x.py", 10))
+    daemon = fake_daemon(tmp_path)
+    results: dict[int, MutantResult] = {}
+    defer_untouched: queue.Queue[Work] = queue.Queue()
+    markers = worker._Markers.of(daemon)
+
+    def guarded(*_a: object, **_k: object) -> RunResult:
+        # One test entered the mutated code, another ran a closure built before the mutant.
+        markers.touched.write_text("1", encoding="utf-8")
+        markers.stale.write_text("1", encoding="utf-8")
+        return RunResult(0, {}, [])
+
+    monkeypatch.setattr(worker, "run_subset_guarded", guarded)
+
+    _make_lease(daemon, results=results, defer_untouched=defer_untouched).run(item)
+
+    assert results[0].status is MutantStatus.UNSUPPORTED
+    assert defer_untouched.empty()  # a fresh fork inherits the same closure
+
+
+def test_kill_whose_tests_also_ran_the_original_code_stands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    item = work(0, mutant("src/x.py", 10))
+    daemon = fake_daemon(tmp_path)
+    results: dict[int, MutantResult] = {}
+    markers = worker._Markers.of(daemon)
+    responses = [RunResult(1, {}, ["tests/x_test.py::test_x"]), RunResult(0, {}, [])]
+
+    def guarded(*_a: object, **_k: object) -> RunResult:
+        # The killer entered the mutated code; another test ran a closure built before the mutant.
+        markers.touched.write_text("1", encoding="utf-8")
+        markers.stale.write_text("1", encoding="utf-8")
+        return responses.pop(0)
+
+    monkeypatch.setattr(worker, "run_subset_guarded", guarded)
+
+    _make_lease(daemon, results=results).run(item)
+
+    _assert_result_contract(results[0], item, status=MutantStatus.KILLED)
+    assert results[0].killed_by == ("tests/x_test.py::test_x",)
+
+
 def test_untouched_kill_defers_for_fresh_confirmation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     item = work(0, mutant("src/x.py", 10))
     daemon = fake_daemon(tmp_path)

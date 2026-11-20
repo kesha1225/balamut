@@ -55,6 +55,7 @@ FORCE_COMPILE_ENV = "BALAMUT_FORCE_COMPILE"
 
 UNSUPPORTED_MARKER_SUFFIX = ".unsupported"
 TOUCHED_MARKER_SUFFIX = ".touched"
+STALE_MARKER_SUFFIX = ".stale"
 _MONITORING_TOOL_IDS = (4, 3)  # 0/1/2/5 are reserved by CPython for debugger/coverage/profiler/optimizer
 _ANNOTATE = "__annotate__"  # the deferred annotations of a definition (PEP 649)
 
@@ -107,6 +108,9 @@ class MutantSpec(TypedDict):
     target_lineno: NotRequired[int]  # site line: selects the exact nested code object for the touch marker
     target_col: NotRequired[int]  # UTF-8 byte column of the site start
     touch_path: NotRequired[str]  # marker of an actual entry into the mutated code object
+    # Marker of an entry into the original code object at the site: a closure or a copy of the function made before
+    # the mutant keeps the original body, so the test that called it never ran the mutant.
+    stale_path: NotRequired[str]
     deps_path: NotRequired[str]  # where the lease publishes the repository functions it entered
 
 
@@ -117,6 +121,7 @@ _OPTIONAL_STR_KEYS = (
     "default_literal",
     "request_token",
     "touch_path",
+    "stale_path",
     "deps_path",
     "bc_kind",
     "bc_source",
@@ -170,8 +175,8 @@ class ApplyOutcome(Enum):
 def _codes_at_site(root: CodeType, lineno: int | None, col: int | None) -> tuple[CodeType, ...]:
     """The innermost code objects whose own source extent holds the start of the edit; the root when none does.
 
-    Only the start is compared: the positions are those of the mutated code, and the edit may have moved
-    everything after its start. A nested code object that the edit merely contains (a lambda argument of an edited
+    Only the start is compared: it is the same point in the original and in the mutated code, while the edit may
+    have moved everything after it. A nested code object that the edit merely contains (a lambda argument of an edited
     call) does not hold the start, so the marker stays on the scope that runs the edit: armed on the lambda, it
     would stay silent for a mutant whose call fails before the lambda runs. The ``__annotate__`` function of an
     annotated nested definition (PEP 649) spans the whole definition but runs only when the annotations are read:
@@ -215,8 +220,19 @@ def _extent_holds(code: CodeType, lineno: int, col: int | None) -> bool:
     return bool(lines) and min(first for first, _last in lines) <= lineno <= max(last for _first, last in lines)
 
 
-def _arm_touch_marker(codes: tuple[CodeType, ...], path: str | None) -> Callable[[], None]:
-    """Mark the first actual entry into the target code objects through a local ``sys.monitoring`` event."""
+def _arm_touch_marker(
+    codes: tuple[CodeType, ...],
+    path: str | None,
+    *,
+    stale: tuple[CodeType, ...] = (),
+    stale_path: str | None = None,
+) -> Callable[[], None]:
+    """Mark the first actual entry into the target code objects through a local ``sys.monitoring`` event.
+
+    ``stale`` are the original code objects at the site: an entry into one of them marks ``stale_path``. Patching
+    reaches the function the mutant names and every closure its new body creates, but not a closure (or a copy) made
+    earlier, such as the wrapper a decorator built when a test module was imported: that one keeps the original
+    body, and the test calling it never runs the mutant."""
     if path is None:
         return _noop_restore
     monitoring = sys.monitoring
@@ -232,15 +248,24 @@ def _arm_touch_marker(codes: tuple[CodeType, ...], path: str | None) -> Callable
         return _noop_restore  # no marker: the driver re-checks the mutant in a fresh process
 
     marker = Path(path)
+    # The file an entry into each watched code object marks, keyed by identity: code objects compare by value. A
+    # code object the mutated body shares with the original is the mutant's own, and an entry into it is a touch.
+    marks = {id(code): marker for code in codes}
+    stale_codes: tuple[CodeType, ...] = ()
+    if stale_path is not None:
+        stale_codes = tuple(code for code in stale if id(code) not in marks)
+        marks.update({id(code): Path(stale_path) for code in stale_codes})
+    watched = (*codes, *stale_codes)
 
-    def mark(_code: CodeType, _instruction_offset: int) -> kill_deps.MonitoringSignal:
-        with suppress(OSError):  # fail closed: a missing marker sends a survivor to a fresh re-check
-            marker.write_text("1", encoding="utf-8")
+    def mark(code: CodeType, _instruction_offset: int) -> kill_deps.MonitoringSignal:
+        # Only the watched code objects have the event, and ``watched`` keeps each of them (and so its id) alive.
+        with suppress(OSError):  # fail closed: a missing touch marker sends a survivor to a fresh re-check
+            marks[id(code)].write_text("1", encoding="utf-8")
         return monitoring.DISABLE
 
     try:
         monitoring.register_callback(tool_id, monitoring.events.PY_START, mark)
-        for code in codes:
+        for code in watched:
             monitoring.set_local_events(tool_id, code, monitoring.events.PY_START)
     except ValueError:
         monitoring.clear_tool_id(tool_id)
@@ -248,7 +273,7 @@ def _arm_touch_marker(codes: tuple[CodeType, ...], path: str | None) -> Callable
         return _noop_restore
 
     def disarm() -> None:
-        for code in codes:
+        for code in watched:
             monitoring.set_local_events(tool_id, code, 0)
         monitoring.register_callback(tool_id, monitoring.events.PY_START, None)
         monitoring.free_tool_id(tool_id)
@@ -313,16 +338,19 @@ def prepare_mutation(
     edit = _defaults_edit(spec) if spec.get("mechanism") == ApplyMechanism.DEFAULTS.value else _code_edit(func, spec)
     if edit is None:
         return None
-    put, watched = edit
+    put, watched, originals = edit
     trial = put(func)
     if trial is None:
         return None
     trial()
     targets: list[tuple[FunctionType, Revert]] = [(func, cache_clear)]
     touch_path = spec.get("touch_path")
+    stale_path = spec.get("stale_path")
 
     def apply() -> Revert:
-        disarm = _arm_touch_marker(watched(tuple(target for target, _clear in targets)), touch_path)
+        disarm = _arm_touch_marker(
+            watched(tuple(target for target, _clear in targets)), touch_path, stale=originals, stale_path=stale_path
+        )
         reverts: list[Revert] = []
 
         def put_on(target: FunctionType, clear: Revert) -> None:
@@ -366,8 +394,10 @@ def prepare_mutation(
     return apply
 
 
-def _code_edit(func: FunctionType, spec: MutantSpec) -> tuple[_Put, _Watched] | None:
-    """The mutated body for ``__code__``; the touch marker watches the code object that holds the edit."""
+def _code_edit(func: FunctionType, spec: MutantSpec) -> tuple[_Put, _Watched, tuple[CodeType, ...]] | None:
+    """The mutated body for ``__code__``; the touch marker watches the code object that holds the edit, and the
+    original code object at the site for an entry that ran the original instead."""
+    originals = _codes_at_site(func.__code__, spec.get("target_lineno"), spec.get("target_col"))
     # Domain mutants reference helper names (nullcontext, fuzz/fault helpers, the oracle sentinel): inject them
     # with setdefault so an imported name of the module is never clobbered.
     for name, value in {**fuzz_globals(), **fault_globals(), **oracle_globals()}.items():
@@ -393,12 +423,12 @@ def _code_edit(func: FunctionType, spec: MutantSpec) -> tuple[_Put, _Watched] | 
     def watched(_targets: tuple[FunctionType, ...]) -> tuple[CodeType, ...]:
         return codes
 
-    return put, watched
+    return put, watched, originals
 
 
-def _defaults_edit(spec: MutantSpec) -> tuple[_Put, _Watched] | None:
+def _defaults_edit(spec: MutantSpec) -> tuple[_Put, _Watched, tuple[CodeType, ...]] | None:
     """One default replaced, positional (``default_index``) or keyword-only (``default_name``); the touch marker
-    watches the function's own code.
+    watches the function's own code. No original code object is watched: the body stays the same.
 
     Sibling defaults are taken from the already evaluated tuple or mapping (never re-evaluated), so nothing runs as
     a side effect."""
@@ -421,7 +451,7 @@ def _defaults_edit(spec: MutantSpec) -> tuple[_Put, _Watched] | None:
     def watched(targets: tuple[FunctionType, ...]) -> tuple[CodeType, ...]:
         return tuple(target.__code__ for target in targets)
 
-    return put, watched
+    return put, watched, ()
 
 
 def _keyword_default_put(name: str, value: object) -> _Put:
@@ -689,6 +719,7 @@ __all__ = [
     "FORCE_COMPILE_ENV",
     "KILL_DEPS_ENV",
     "MUTANT_FILE_ENV",
+    "STALE_MARKER_SUFFIX",
     "TEST_ROOTS_ENV",
     "TOUCHED_MARKER_SUFFIX",
     "UNSUPPORTED_MARKER_SUFFIX",
